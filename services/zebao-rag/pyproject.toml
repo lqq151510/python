@@ -1,0 +1,27 @@
+[project]
+name = "zebao-rag"
+version = "0.1.0"
+description = "Local multimodal RAG CLI and isolated semantic retrieval worker for DevAssist"
+readme = "README.md"
+authors = [
+    { name = "刘勇泽", email = "2171445126@qq.com" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "chromadb>=1.5.9",
+    "httpx>=0.28.1",
+    "pillow>=12.3.0",
+    "pydantic>=2,<3",
+    "pymilvus>=2.4.15,<2.5",
+    "sentence-transformers>=6.1.0",
+    "setuptools>=70,<81",
+    "torch>=2.14.1",
+    "torchvision>=0.29.1",
+]
+
+[project.scripts]
+zebao-rag = "zebao_rag:main"
+
+[build-system]
+requires = ["uv_build>=0.12.8,<0.13.0"]
+build-backend = "uv_build"

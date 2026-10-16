@@ -1,0 +1,390 @@
+{
+  "schema_version": 2,
+  "dataset_id": "devassist-authored-notes-v2",
+  "description": "依据合成演示资料原文独立编写标注的片段级检索诊断集；未命中样例用于记录基线局限，不是生产性能评估。",
+  "corpus": [
+    "knowledge/async.md",
+    "knowledge/model-errors.md",
+    "knowledge/operations.md",
+    "retrieval-corpus/incident-runbook.md",
+    "retrieval-corpus/service-notes.md"
+  ],
+  "cases": [
+    {
+      "id": "D01",
+      "category": "direct",
+      "query": "FastAPI async await 网络 I/O",
+      "scope": null,
+      "expected": [
+        {
+          "filename": "async.md",
+          "line_start": 5,
+          "line_end": 5,
+          "quote": "FastAPI 的 async 接口通过 await 等待异步网络 I/O。"
+        }
+      ]
+    },
+    {
+      "id": "D02",
+      "category": "direct",
+      "query": "blocking 文件解析数据库操作放在哪里",
+      "scope": null,
+      "expected": [
+        {
+          "filename": "async.md",
+          "line_start": 12,
+          "line_end": 12,
+          "quote": "blocking 文件解析和数据库操作应放在线程池，长时间训练应作为独立任务。"
+        }
+      ]
+    },
+    {
+      "id": "D03",
+      "category": "direct",
+      "query": "Alembic 如何管理数据库结构",
+      "scope": null,
+      "expected": [
+        {
+          "filename": "operations.md",
+          "line_start": 6,
+          "line_end": 6,
+          "quote": "数据库结构通过 Alembic 迁移管理，不依靠接口启动时临时创建表。"
+        }
+      ]
+    },
+    {
+      "id": "D04",
+      "category": "direct",
+      "query": "OpenAPI 描述和接口文档地址",
+      "scope": null,
+      "expected": [
+        {
+          "filename": "operations.md",
+          "line_start": 14,
+          "line_end": 14,
+          "quote": "OpenAPI 描述在 /api/v1/openapi.json，接口文档在 /docs。"
+        }
+      ]
+    },
+    {
+      "id": "D05",
+      "category": "direct",
+      "query": "DEEPSEEK_API_KEY 从哪里读取",
+      "scope": null,
+      "expected": [
+        {
+          "filename": "model-errors.md",
+          "line_start": 5,
+          "line_end": 5,
+          "quote": "DEEPSEEK_API_KEY 仅由后端从项目根目录 .env 读取。"
+        }
+      ]
+    },
+    {
+      "id": "D06",
+      "category": "direct",
+      "query": "读取超时是否重试",
+      "scope": null,
+      "expected": [
+        {
+          "filename": "model-errors.md",
+          "line_start": 18,
+          "line_end": 18,
+          "quote": "读取超时不重试，因为上游可能已经接受并处理了请求。"
+        }
+      ]
+    },
+    {
+      "id": "D07",
+      "category": "direct",
+      "query": "访问令牌过期返回 401 后怎么办",
+      "scope": null,
+      "expected": [
+        {
+          "filename": "service-notes.md",
+          "line_start": 5,
+          "line_end": 5,
+          "quote": "访问令牌过期时返回 401，用户需要重新登录。"
+        }
+      ]
+    },
+    {
+      "id": "D08",
+      "category": "direct",
+      "query": "Authorization 标头和文档正文能否写入日志",
+      "scope": null,
+      "expected": [
+        {
+          "filename": "service-notes.md",
+          "line_start": 18,
+          "line_end": 18,
+          "quote": "Authorization 标头、访问令牌、用户提交的文档正文不得写入日志。"
+        }
+      ]
+    },
+    {
+      "id": "P01",
+      "category": "paraphrase",
+      "query": "等待回应时其他访问也会卡住吗",
+      "scope": null,
+      "expected": [
+        {
+          "filename": "async.md",
+          "line_start": 6,
+          "line_end": 6,
+          "quote": "等待时会把控制权交回事件循环，同一进程还能处理其他请求。"
+        }
+      ]
+    },
+    {
+      "id": "P02",
+      "category": "paraphrase",
+      "query": "明文凭证能塞进网页环境变量里吗",
+      "scope": null,
+      "expected": [
+        {
+          "filename": "model-errors.md",
+          "line_start": 7,
+          "line_end": 7,
+          "quote": "前端不得使用 VITE_ 前缀保存模型密钥。"
+        }
+      ]
+    },
+    {
+      "id": "P03",
+      "category": "paraphrase",
+      "query": "远端一直没把数据传回来，再发一遍会不会重复处理",
+      "scope": null,
+      "expected": [
+        {
+          "filename": "model-errors.md",
+          "line_start": 18,
+          "line_end": 18,
+          "quote": "读取超时不重试，因为上游可能已经接受并处理了请求。"
+        }
+      ]
+    },
+    {
+      "id": "P04",
+      "category": "paraphrase",
+      "query": "表结构如何跟代码版本一起更新",
+      "scope": null,
+      "expected": [
+        {
+          "filename": "operations.md",
+          "line_start": 6,
+          "line_end": 6,
+          "quote": "数据库结构通过 Alembic 迁移管理，不依靠接口启动时临时创建表。"
+        }
+      ]
+    },
+    {
+      "id": "P05",
+      "category": "paraphrase",
+      "query": "已经登录为什么还是不让看别人的内容",
+      "scope": null,
+      "expected": [
+        {
+          "filename": "service-notes.md",
+          "line_start": 6,
+          "line_end": 6,
+          "quote": "403 表示当前账号没有访问权限，重新发送同一请求不会获得额外权限。"
+        }
+      ]
+    },
+    {
+      "id": "P06",
+      "category": "paraphrase",
+      "query": "改完工单后怎样避免读到旧列表",
+      "scope": null,
+      "expected": [
+        {
+          "filename": "service-notes.md",
+          "line_start": 11,
+          "line_end": 11,
+          "quote": "更新工单后删除对应缓存键。"
+        }
+      ]
+    },
+    {
+      "id": "N01",
+      "category": "negative",
+      "query": "photosynthesis chlorophyll",
+      "scope": null,
+      "expected": []
+    },
+    {
+      "id": "N02",
+      "category": "negative",
+      "query": "quantum neutrino",
+      "scope": null,
+      "expected": []
+    },
+    {
+      "id": "N03",
+      "category": "negative",
+      "query": "用户如何申请退货退款，列出办理步骤",
+      "scope": null,
+      "expected": []
+    },
+    {
+      "id": "N04",
+      "category": "negative",
+      "query": "Docker PostgreSQL 跨地区备份和灾难恢复具体怎么配置",
+      "scope": null,
+      "expected": []
+    },
+    {
+      "id": "N05",
+      "category": "negative",
+      "query": "FastAPI 服务如何训练 LoRA 模型，给出训练参数",
+      "scope": null,
+      "expected": []
+    },
+    {
+      "id": "N06",
+      "category": "negative",
+      "query": "Redis AOF 持久化文件损坏后怎样恢复",
+      "scope": null,
+      "expected": []
+    },
+    {
+      "id": "L01",
+      "category": "long_document",
+      "query": "healthz 健康接口正常响应包含哪些信息",
+      "scope": null,
+      "expected": [
+        {
+          "filename": "incident-runbook.md",
+          "line_start": 6,
+          "line_end": 6,
+          "quote": "正常响应包含 status=ok 和服务版本"
+        }
+      ]
+    },
+    {
+      "id": "L02",
+      "category": "long_document",
+      "query": "request_id 查询脱敏事件默认返回最近多少条记录",
+      "scope": null,
+      "expected": [
+        {
+          "filename": "incident-runbook.md",
+          "line_start": 10,
+          "line_end": 10,
+          "quote": "查询脱敏事件时固定按 request_id 过滤，默认只返回最近二十条记录。"
+        }
+      ]
+    },
+    {
+      "id": "L03",
+      "category": "long_document",
+      "query": "pool_wait 警报的含义和连接池上限",
+      "scope": null,
+      "expected": [
+        {
+          "filename": "incident-runbook.md",
+          "line_start": 12,
+          "line_end": 12,
+          "quote": "数据库连接池最多允许八个连接"
+        },
+        {
+          "filename": "incident-runbook.md",
+          "line_start": 12,
+          "line_end": 12,
+          "quote": "pool_wait 警报表示连接池等待超过三秒"
+        }
+      ]
+    },
+    {
+      "id": "L04",
+      "category": "long_document",
+      "query": "latency_tail 的 P95 触发阈值是多少",
+      "scope": null,
+      "expected": [
+        {
+          "filename": "incident-runbook.md",
+          "line_start": 17,
+          "line_end": 17,
+          "quote": "P95 超过一千二百毫秒时标记 latency_tail"
+        }
+      ]
+    },
+    {
+      "id": "L05",
+      "category": "long_document",
+      "query": "说明 request_id 脱敏事件返回条数以及 latency_tail 阈值",
+      "scope": null,
+      "expected": [
+        {
+          "filename": "incident-runbook.md",
+          "line_start": 10,
+          "line_end": 10,
+          "quote": "默认只返回最近二十条记录"
+        },
+        {
+          "filename": "incident-runbook.md",
+          "line_start": 17,
+          "line_end": 17,
+          "quote": "P95 超过一千二百毫秒时标记 latency_tail"
+        }
+      ]
+    },
+    {
+      "id": "S01",
+      "category": "scoped",
+      "query": "读取超时",
+      "scope": "async.md",
+      "expected": []
+    },
+    {
+      "id": "S02",
+      "category": "scoped",
+      "query": "Alembic 数据库迁移",
+      "scope": "operations.md",
+      "expected": [
+        {
+          "filename": "operations.md",
+          "line_start": 6,
+          "line_end": 6,
+          "quote": "数据库结构通过 Alembic 迁移管理"
+        }
+      ]
+    },
+    {
+      "id": "S03",
+      "category": "scoped",
+      "query": "Redis TTL 工单缓存有效期",
+      "scope": "service-notes.md",
+      "expected": [
+        {
+          "filename": "service-notes.md",
+          "line_start": 11,
+          "line_end": 11,
+          "quote": "TTL 固定为 60 秒"
+        }
+      ]
+    },
+    {
+      "id": "S04",
+      "category": "scoped",
+      "query": "日志记录请求标识和用量吗",
+      "scope": "model-errors.md",
+      "expected": [
+        {
+          "filename": "model-errors.md",
+          "line_start": 20,
+          "line_end": 20,
+          "quote": "日志只记录请求标识、耗时、错误码和 token 用量"
+        }
+      ]
+    },
+    {
+      "id": "S05",
+      "category": "scoped",
+      "query": "photosynthesis chlorophyll",
+      "scope": "model-errors.md",
+      "expected": []
+    }
+  ]
+}

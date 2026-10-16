@@ -2,6 +2,7 @@ import uuid
 from datetime import UTC, datetime
 
 from pydantic import EmailStr
+from sqlalchemy import DateTime, Text, UniqueConstraint
 from sqlmodel import Field, Relationship, SQLModel
 
 
@@ -124,3 +125,35 @@ class TokenPayload(SQLModel):
 class NewPassword(SQLModel):
     token: str
     new_password: str = Field(min_length=8, max_length=128)
+
+
+class Document(SQLModel, table=True):
+    __table_args__ = (
+        UniqueConstraint("owner_id", "sha256", name="uq_document_owner_sha256"),
+    )
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    owner_id: uuid.UUID = Field(foreign_key="user.id", ondelete="CASCADE", index=True)
+    filename: str = Field(max_length=255)
+    sha256: str = Field(max_length=64)
+    size_bytes: int
+    chunk_count: int
+    created_at: datetime = Field(
+        default_factory=get_datetime_utc, sa_type=DateTime(timezone=True)
+    )
+
+
+class DocumentChunk(SQLModel, table=True):
+    __table_args__ = (
+        UniqueConstraint("document_id", "position", name="uq_documentchunk_position"),
+    )
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    document_id: uuid.UUID = Field(
+        foreign_key="document.id", ondelete="CASCADE", index=True
+    )
+    position: int
+    heading: str = Field(max_length=255)
+    line_start: int
+    line_end: int
+    content: str = Field(sa_type=Text)

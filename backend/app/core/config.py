@@ -3,8 +3,10 @@ from typing import Literal, Self
 
 from pydantic import (
     EmailStr,
+    Field,
     HttpUrl,
     PostgresDsn,
+    SecretStr,
     computed_field,
     field_validator,
     model_validator,
@@ -29,6 +31,41 @@ class Settings(BaseSettings):
     PROJECT_NAME: str
     SENTRY_DSN: HttpUrl | None = None
     DATABASE_URL: PostgresDsn
+
+    DEEPSEEK_API_KEY: SecretStr | None = None
+    DEEPSEEK_BASE_URL: HttpUrl = HttpUrl("https://api.deepseek.com")
+    DEEPSEEK_MODEL: str = "deepseek-flash"
+    CHAT_TOTAL_TIMEOUT_SECONDS: float = Field(default=30, gt=0, le=30)
+    CHAT_CONNECT_TIMEOUT_SECONDS: float = Field(default=5, gt=0, le=5)
+    CHAT_MAX_TOKENS: int = Field(default=1024, gt=0, le=1024)
+
+    RAG_WORKER_ENABLED: bool = False
+    RAG_WORKER_URL: HttpUrl = HttpUrl("http://127.0.0.1:8765")
+    RAG_WORKER_TIMEOUT_SECONDS: float = Field(default=30, gt=0, le=60)
+    RAG_MIN_SIMILARITY: float = Field(default=0.3, ge=-1, le=1)
+    RAG_VECTOR_STORE: Literal["milvus", "chroma"] = "milvus"
+    RAG_CACHE_ENABLED: bool = False
+    REDIS_URL: str = "redis://127.0.0.1:6379/1"
+    MYSQL_DATABASE_URL: SecretStr | None = None
+
+    @field_validator("RAG_WORKER_URL")
+    @classmethod
+    def _local_rag_worker(cls, value: HttpUrl) -> HttpUrl:
+        if value.scheme != "http" or value.host not in (
+            "127.0.0.1",
+            "localhost",
+            "[::1]",
+        ):
+            raise ValueError("RAG worker must use a local HTTP loopback address")
+        if (
+            value.username
+            or value.password
+            or value.query
+            or value.fragment
+            or value.path not in (None, "/")
+        ):
+            raise ValueError("RAG worker URL must contain only scheme, host and port")
+        return value
 
     @field_validator("DATABASE_URL", mode="before")
     @classmethod

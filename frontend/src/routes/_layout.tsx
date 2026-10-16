@@ -1,5 +1,10 @@
-import { createFileRoute, Outlet, redirect } from "@tanstack/react-router"
-
+import {
+  createFileRoute,
+  Outlet,
+  redirect,
+  useRouterState,
+} from "@tanstack/react-router"
+import { DevAssistLayout } from "@/components/Common/DevAssistLayout"
 import { Footer } from "@/components/Common/Footer"
 import AppSidebar from "@/components/Sidebar/AppSidebar"
 import {
@@ -21,6 +26,14 @@ export const Route = createFileRoute("/_layout")({
 })
 
 function Layout() {
+  const path = useRouterState({ select: (state) => state.location.pathname })
+  if (path === "/chat" || path === "/knowledge" || path === "/learning") {
+    return (
+      <DevAssistLayout>
+        <Outlet />
+      </DevAssistLayout>
+    )
+  }
   return (
     <SidebarProvider>
       <AppSidebar />
