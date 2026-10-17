@@ -2,6 +2,7 @@ from fastapi import APIRouter
 
 from app.api.routes import (
     chat,
+    code,
     documents,
     items,
     learning,
@@ -18,6 +19,7 @@ api_router.include_router(users.router)
 api_router.include_router(utils.router)
 api_router.include_router(items.router)
 api_router.include_router(chat.router)
+api_router.include_router(code.router)
 api_router.include_router(documents.router)
 api_router.include_router(learning.router)
 
