@@ -8,6 +8,7 @@ export interface ChatMessage {
   useDocuments: boolean
   retrievalMethod?: RetrievalMethod
   documentId?: string
+  clientRequestId?: string
 }
 
 export interface ChatResponse {
@@ -28,16 +29,21 @@ export async function sendChatMessage(
 ): Promise<ChatResponse> {
   const response = await client.post<{ 200: ChatResponse }, unknown, true>({
     url: "/api/v1/chat",
-    body: input.useDocuments
-      ? {
-          message: input.message,
-          use_documents: true,
-          ...(input.retrievalMethod && input.retrievalMethod !== "bm25"
-            ? { retrieval_method: input.retrievalMethod }
-            : {}),
-          ...(input.documentId ? { document_id: input.documentId } : {}),
-        }
-      : { message: input.message },
+    body: {
+      message: input.message,
+      ...(input.clientRequestId
+        ? { client_request_id: input.clientRequestId }
+        : {}),
+      ...(input.useDocuments
+        ? {
+            use_documents: true,
+            ...(input.retrievalMethod && input.retrievalMethod !== "bm25"
+              ? { retrieval_method: input.retrievalMethod }
+              : {}),
+            ...(input.documentId ? { document_id: input.documentId } : {}),
+          }
+        : {}),
+    },
     security: [{ scheme: "bearer", type: "http" }],
     headers: { "Content-Type": "application/json" },
     responseType: "json",

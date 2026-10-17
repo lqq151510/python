@@ -11,19 +11,28 @@ import pytest
 from fastapi.testclient import TestClient
 from openai import AsyncOpenAI
 from pydantic import SecretStr, ValidationError
+from sqlmodel import Session
 
 from app import chat
 from app.api.deps import get_current_user
 from app.core.config import Settings, settings
 from app.main import app
 from app.models import User
+from tests.utils.user import create_random_user
 
 CHAT_URL = f"{settings.API_V1_STR}/chat"
 
 
 @pytest.fixture
-def authenticated_client(client: TestClient) -> Generator[TestClient]:
-    app.dependency_overrides[get_current_user] = lambda: User(email="chat@example.com")
+def authenticated_user(db: Session) -> User:
+    return create_random_user(db)
+
+
+@pytest.fixture
+def authenticated_client(
+    client: TestClient, authenticated_user: User
+) -> Generator[TestClient]:
+    app.dependency_overrides[get_current_user] = lambda: authenticated_user
     yield client
     app.dependency_overrides.pop(get_current_user, None)
 
@@ -134,6 +143,9 @@ def test_missing_authentication_has_request_id(client: TestClient) -> None:
     response = client.post(CHAT_URL, json={"message": "你好"})
     assert response.status_code == 401
     assert UUID(response.headers["X-Request-ID"])
+    history = client.get(f"{CHAT_URL}/history")
+    assert history.status_code == 401
+    assert UUID(history.headers["X-Request-ID"])
 
 
 def test_missing_key(
@@ -182,6 +194,7 @@ def test_provider_status_and_retry_limit(
         code,
     )
     assert calls == attempts
+    assert authenticated_client.get(f"{CHAT_URL}/history").json()["count"] == 0
 
 
 @pytest.mark.parametrize(
@@ -217,6 +230,7 @@ def test_network_failure_classification(
         code,
     )
     assert calls == attempts
+    assert authenticated_client.get(f"{CHAT_URL}/history").json()["count"] == 0
 
 
 @pytest.mark.parametrize("answer", ["", " \n ", None])
@@ -390,3 +404,72 @@ def test_settings_enforce_budget_caps(field: str, value: int) -> None:
     values[field] = value
     with pytest.raises(ValidationError):
         Settings(**values)
+
+
+def test_chat_history_preserves_sources_is_idempotent_and_private(
+    authenticated_client: TestClient,
+    authenticated_user: User,
+    db: Session,
+    model_config: None,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    del model_config
+    document = authenticated_client.post(
+        f"{settings.API_V1_STR}/documents",
+        files={
+            "file": (
+                "guide.md",
+                "# 数据隔离\n每条历史记录只属于创建它的用户。".encode(),
+            )
+        },
+    ).json()["document"]
+    calls = 0
+
+    def respond(_request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return httpx.Response(200, json=completion_response("回答依据 [S1]"))
+
+    mock_provider(monkeypatch, respond)
+    body = {
+        "message": "历史记录 用户",
+        "use_documents": True,
+        "document_id": document["id"],
+        "client_request_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+    }
+    first = authenticated_client.post(CHAT_URL, json=body)
+    assert first.status_code == 200
+    assert first.json()["sources"][0]["citation"] == "S1"
+
+    history = authenticated_client.get(f"{CHAT_URL}/history")
+    assert history.status_code == 200
+    assert history.json()["count"] == 1
+    summary = history.json()["data"][0]
+    assert summary["message"] == body["message"]
+    assert summary["source_count"] == 1
+
+    detail = authenticated_client.get(f"{CHAT_URL}/history/{summary['id']}")
+    assert detail.status_code == 200
+    assert detail.json()["answer"] == "回答依据 [S1]"
+    assert detail.json()["sources"][0]["document_id"] == document["id"]
+    assert detail.json()["sources"][0]["citation"] == "S1"
+
+    replay = authenticated_client.post(CHAT_URL, json=body)
+    assert replay.status_code == 200
+    assert replay.json()["answer"] == first.json()["answer"]
+    assert calls == 1
+    reused_key = authenticated_client.post(
+        CHAT_URL, json={**body, "message": "另一条问题"}
+    )
+    assert reused_key.status_code == 409
+    assert reused_key.json()["detail"]["code"] == "idempotency_key_reused"
+    assert calls == 1
+
+    other_user = create_random_user(db)
+    app.dependency_overrides[get_current_user] = lambda: other_user
+    assert authenticated_client.get(f"{CHAT_URL}/history").json()["count"] == 0
+    assert (
+        authenticated_client.get(f"{CHAT_URL}/history/{summary['id']}").status_code
+        == 404
+    )
+    assert authenticated_user.id != other_user.id

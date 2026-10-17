@@ -2,7 +2,7 @@ import uuid
 from datetime import UTC, datetime
 
 from pydantic import EmailStr
-from sqlalchemy import DateTime, Text, UniqueConstraint
+from sqlalchemy import DateTime, Index, Text, UniqueConstraint
 from sqlmodel import Field, Relationship, SQLModel
 
 
@@ -157,3 +157,28 @@ class DocumentChunk(SQLModel, table=True):
     line_start: int
     line_end: int
     content: str = Field(sa_type=Text)
+
+
+class ChatTurn(SQLModel, table=True):
+    __table_args__ = (
+        UniqueConstraint(
+            "owner_id", "client_request_id", name="uq_chatturn_owner_client_request"
+        ),
+        UniqueConstraint("request_id", name="uq_chatturn_request_id"),
+        Index("ix_chatturn_owner_created_at", "owner_id", "created_at"),
+    )
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    owner_id: uuid.UUID = Field(foreign_key="user.id", ondelete="CASCADE")
+    client_request_id: uuid.UUID | None = Field(default=None)
+    request_hash: str = Field(max_length=64)
+    request_id: str = Field(max_length=36)
+    message: str = Field(sa_type=Text)
+    answer: str = Field(sa_type=Text)
+    sources_json: str = Field(default="[]", sa_type=Text)
+    retrieval_method: str | None = Field(default=None, max_length=16)
+    created_at: datetime = Field(
+        default_factory=get_datetime_utc, sa_type=DateTime(timezone=True)
+    )
+
+    retrieval_warning: str | None = Field(default=None, max_length=64)

@@ -17,6 +17,7 @@ import {
 } from "lucide-react"
 import { useQueryClient } from "@tanstack/react-query"
 import { type ChangeEvent, type FormEvent, useEffect, useRef, useState } from "react"
+import { ChatHistory } from "@/components/Common/ChatHistory"
 import { CodeWorkspace } from "@/components/Common/CodeWorkspace"
 import { DevAssistHeader } from "@/components/Common/DevAssistLayout"
 import { DocumentScope } from "@/components/Common/DocumentScope"
@@ -73,7 +74,13 @@ function Chat() {
   const [submittedMessage, setSubmittedMessage] = useState("")
   const [validationError, setValidationError] = useState("")
   const submitting = useRef(false)
-  const mutation = useMutation({ mutationFn: sendChatMessage, retry: false })
+  const pendingRequest = useRef<{ signature: string; key: string } | null>(null)
+  const mutation = useMutation({
+    mutationFn: sendChatMessage,
+    retry: false,
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: ["chat-history", user?.id] }),
+  })
   const retrieval = useMutation({
     mutationFn: (input: { query: string; documentId?: string }) =>
       searchDocuments(input.query, input.documentId, method),
@@ -121,13 +128,24 @@ function Chat() {
     setSubmittedMessage(trimmedMessage)
     retrieval.reset()
     mutation.reset()
+    const signature = JSON.stringify([
+      trimmedMessage,
+      useDocuments,
+      useDocuments ? scope : "",
+      useDocuments ? method : "",
+    ])
+    if (!pendingRequest.current || pendingRequest.current.signature !== signature) {
+      pendingRequest.current = { signature, key: crypto.randomUUID() }
+    }
     try {
       await mutation.mutateAsync({
         message: trimmedMessage,
         useDocuments,
         retrievalMethod: method,
         documentId: scope || undefined,
+        clientRequestId: pendingRequest.current.key,
       })
+      pendingRequest.current = null
     } catch {
       // The mutation state renders a safe, user-facing error below.
     } finally {
@@ -220,6 +238,7 @@ function Chat() {
           <Code2 size={18} aria-hidden="true" /> 编程智能体
         </button>
       </div>
+      {mode === "rag" && user && <ChatHistory userId={user.id} />}
       {mode === "code" ? <CodeWorkspace /> : (
       <div className="da-workbench">
         <section className="da-question-column" aria-label="问答">
@@ -365,7 +384,7 @@ function Chat() {
               aria-invalid={Boolean(validationError)}
             />
             <p id="chat-message-help" className="da-composer-help">
-              {characterCount} / 4000 字符 · 每次提问独立，刷新后不保存回答
+              {characterCount} / 4000 字符 · 成功回答会保存在历史记录中
             </p>
             {useDocuments && (
               <DocumentScope

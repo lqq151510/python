@@ -288,6 +288,26 @@ def test_offline_cli_needs_no_env_network_or_database_and_is_reproducible(
     strict, output = run_offline(tmp_path, 4, ["--strict"])
     assert strict.returncode == 1 and output.is_file()
     assert "严格验收未通过" in strict.stderr
+    gate, output = run_offline(
+        tmp_path,
+        6,
+        ["--gate", str(ROOT / "examples/retrieval-eval-gate.json")],
+    )
+    assert gate.returncode == 0, gate.stderr
+    assert json.loads(gate.stdout.splitlines()[-1])["gate_passed"] is True
+    failing_gate = tmp_path / "failing-gate.json"
+    failing_gate.write_text(
+        json.dumps(
+            {
+                "dataset_id": "devassist-authored-notes-v2",
+                "minimums": {"passed_count": 31},
+                "maximums": {},
+            }
+        ),
+        encoding="utf-8",
+    )
+    failed, _ = run_offline(tmp_path, 7, ["--gate", str(failing_gate)])
+    assert failed.returncode == 1 and "passed_count" in failed.stderr
     invalid = tmp_path / "invalid.json"
     invalid.write_text("{}", encoding="utf-8")
     rejected, output = run_offline(tmp_path, 5, ["--dataset", str(invalid)])

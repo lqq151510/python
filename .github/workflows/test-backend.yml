@@ -2,8 +2,6 @@ name: Test Backend
 
 on:
   push:
-    branches:
-      - master
   pull_request:
 permissions:
   contents: read
@@ -32,6 +30,9 @@ jobs:
         working-directory: backend
       - name: Run tests
         run: uv run bash scripts/tests-start.sh "Coverage for ${{ github.sha }}"
+        working-directory: backend
+      - name: Gate fixed RAG retrieval evaluation
+        run: uv run python scripts/evaluate-retrieval.py --gate ../examples/retrieval-eval-gate.json --json-output /tmp/devassist-retrieval-eval.json --report /tmp/devassist-retrieval-eval.md
         working-directory: backend
       - run: docker compose down -v --remove-orphans
       - name: Store coverage files
