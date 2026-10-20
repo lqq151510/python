@@ -1,6 +1,7 @@
 import { Link, useRouterState } from "@tanstack/react-router"
 import {
   BookOpen,
+  Clapperboard,
   Code2,
   FileText,
   LogOut,
@@ -49,6 +50,10 @@ export function DevAssistLayout({ children }: { children: ReactNode }) {
             <BookOpen size={22} aria-hidden="true" />
             学习实验
           </Link>
+          <Link to="/aigc" aria-current={path === "/aigc" ? "page" : undefined}>
+            <Clapperboard size={22} aria-hidden="true" />
+            AI 视频生成
+          </Link>
         </nav>
         <div className="da-sidebar-footer">
           <button
@@ -91,29 +96,53 @@ export function DevAssistLayout({ children }: { children: ReactNode }) {
 export function DevAssistHeader({
   knowledge = false,
   code = false,
+  aigc = false,
 }: {
   knowledge?: boolean
   code?: boolean
+  aigc?: boolean
 }) {
-  const Icon = knowledge ? BookOpen : code ? Code2 : MessageSquare
+  const Icon = aigc
+    ? Clapperboard
+    : knowledge
+      ? BookOpen
+      : code
+        ? Code2
+        : MessageSquare
   return (
     <header className="da-header">
       <div>
         <h1>
           <Icon size={31} aria-hidden="true" />
-          {knowledge ? "我的知识库" : code ? "编程智能体" : "问答工作台"}
+          {aigc
+            ? "AI 视频生成"
+            : knowledge
+              ? "我的知识库"
+              : code
+                ? "编程智能体"
+                : "问答工作台"}
         </h1>
         <p>
-          {knowledge
-            ? "把项目资料整理好，让每个问题有据可查。"
-            : code
-              ? "从隔离工作区里的上传文件出发，制定计划并审阅代码改动。"
-              : "从项目文档里找到答案，也看见依据。"}
+          {aigc
+            ? "在本机跑 MiniMax H3：提交任务、排队、看进度，产物只留在自己磁盘上。"
+            : knowledge
+              ? "把项目资料整理好，让每个问题有据可查。"
+              : code
+                ? "从隔离工作区里的上传文件出发，制定计划并审阅代码改动。"
+                : "从项目文档里找到答案，也看见依据。"}
         </p>
       </div>
       <div className="da-header-meta">
         <span className="da-badge">本地应用</span>
-        <span>{knowledge ? "文档持久保存" : code ? "应用隔离沙箱" : "单轮问答"}</span>
+        <span>
+          {aigc
+            ? "ComfyUI 单并发"
+            : knowledge
+              ? "文档持久保存"
+              : code
+                ? "应用隔离沙箱"
+                : "单轮问答"}
+        </span>
       </div>
     </header>
   )

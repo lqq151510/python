@@ -27,7 +27,12 @@ export const Route = createFileRoute("/_layout")({
 
 function Layout() {
   const path = useRouterState({ select: (state) => state.location.pathname })
-  if (path === "/chat" || path === "/knowledge" || path === "/learning") {
+  if (
+    path === "/chat" ||
+    path === "/knowledge" ||
+    path === "/learning" ||
+    path === "/aigc"
+  ) {
     return (
       <DevAssistLayout>
         <Outlet />
