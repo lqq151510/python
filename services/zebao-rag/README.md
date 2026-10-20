@@ -45,6 +45,15 @@ CLI 的数据路径可用 `ZEBAO_RAG_DATA_DIR`、`ZEBAO_RAG_CHROMA_DIR` 配置�
 评估与固定演示中的来源文件名依赖原语料；缺少语料时不能复现 Trae 的评估数字。
 不要把旧评估数字当作网页整合后的成绩。
 
+## 嵌入模型 LoRA 微调
+
+编码器（`Qwen/Qwen3-VL-Embedding-2B`）支持用 LoRA adapter 做领域微调，
+完整的数据构造、训练参数、前后对比数字和已知边界见
+[../../docs/EMBEDDING_FINETUNE.md](../../docs/EMBEDDING_FINETUNE.md)。
+
+设置 `ZEBAO_RAG_ADAPTER=/path/to/adapter` 后 `embedder.get_model()` 会把 adapter
+装到基座上；**切换后要重建向量索引**，否则库里的旧向量和新查询向量不在同一空间。
+
 ## 验证
 
 ```bash

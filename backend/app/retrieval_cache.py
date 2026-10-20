@@ -29,10 +29,20 @@ def key_for(
     identifiers: list[str],
     texts: list[str],
     limit: int,
+    identity: str | None = None,
 ) -> str:
     # A new document snapshot gets a new key; deleted documents cannot reuse hits.
+    # identity 区分嵌入模型版本（含 LoRA 适配器），否则微调前后会互相复用命中。
     fingerprint = json.dumps(
-        ["qwen3-vl-text-v1", namespace, engine, query, identifiers, texts, limit],
+        [
+            identity or settings.RAG_EMBEDDING_IDENTITY,
+            namespace,
+            engine,
+            query,
+            identifiers,
+            texts,
+            limit,
+        ],
         ensure_ascii=False,
     )
     return (
@@ -52,7 +62,7 @@ def get(key: str, namespace: str) -> tuple[dict[str, Any] | None, str]:
         client().expire(counter, 3600)
         payload = json.loads(raw) if raw else None
         return payload if isinstance(payload, dict) else None, status
-    except RedisError, ValueError, TypeError:
+    except (RedisError, ValueError, TypeError):
         return None, "unavailable"
 
 

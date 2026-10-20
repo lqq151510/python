@@ -7,6 +7,7 @@ from typing import Any
 import httpx
 
 from app.core.config import settings
+from app.core.observability import observe_operation
 
 TOKEN_PATH = Path(__file__).resolve().parents[2] / ".local/zebao-rag/worker.token"
 MAX_VECTOR_CHUNKS = 256
@@ -18,6 +19,7 @@ class SemanticUnavailable(Exception):
         super().__init__(code)
 
 
+@observe_operation("vector_rank")
 def vector_rank(
     query: str,
     identifiers: list[str],
@@ -35,7 +37,13 @@ def vector_rank(
         raise SemanticUnavailable("vector_capacity")
     engine = engine or settings.RAG_VECTOR_STORE
     cache_key = retrieval_cache.key_for(
-        namespace, engine, query, identifiers, texts, limit
+        namespace,
+        engine,
+        query,
+        identifiers,
+        texts,
+        limit,
+        identity=settings.RAG_EMBEDDING_IDENTITY,
     )
     cached, status = retrieval_cache.get(cache_key, namespace)
     if cache_info is not None:
@@ -70,7 +78,7 @@ def vector_rank(
             payload = response.json()
     except httpx.TimeoutException:
         raise SemanticUnavailable("vector_timeout") from None
-    except OSError, httpx.HTTPError, ValueError:
+    except (OSError, httpx.HTTPError, ValueError):
         raise SemanticUnavailable() from None
     ranked = validate_hits(payload, identifiers, limit)
     retrieval_cache.put(cache_key, payload)
