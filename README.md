@@ -104,7 +104,7 @@ bash scripts/devassist-dev.sh
 
 模型调用总预算为 30 秒，包含最多两次请求、重试等待和客户端清理；连接超时为 5 秒。SDK 自动重试关闭，应用仅对连接建立失败、429、5xx 最多重试一次；认证失败、参数错误和读取超时不重试。再次点击发送属于新请求。
 
-日志只记录请求标识、时长、错误码和用量，不记录完整问题、回答、密钥或供应商异常正文。默认 Sentry 配置为空。
+所有 `/api/v1` 接口现在提供 `X-Request-ID`；结构化请求日志记录路由模板、方法、响应状态、耗时、错误码和异常类型，向量检索日志使用同一请求编号。日志不记录问题、回答、文件名、查询参数、密钥或供应商异常正文。默认 Sentry 配置为空。字段、日志汇总命令和隔离故障验收见 [请求追踪与故障检查](docs/OBSERVABILITY.md)。
 
 ## 文档导入与检索
 
@@ -152,6 +152,14 @@ PLAYWRIGHT_BROWSER_CHANNEL=chrome bunx --no-install playwright test -c playwrigh
 ```
 
 独立 UI 测试使用模拟接口，只证明页面行为。真实登录、PostgreSQL 联调与真实 DeepSeek 调用须单独验证；缺少密钥时不会把模拟答案计作真实模型成果。
+
+AIGC 生成页的浏览器验证（需要假 ComfyUI、后端、前端三个进程，完整步骤见 [docs/AIGC.md](docs/AIGC.md)）：
+
+```bash
+cd frontend
+PLAYWRIGHT_BROWSER_CHANNEL=chrome PLAYWRIGHT_BASE_URL=http://localhost:5173 \
+  bunx --no-install playwright test -c playwright.aigc.config.ts
+```
 
 本地 `.env` 已排除于 Git 与根目录、backend、frontend 的容器构建上下文。只提交空密钥配置示例 `.env.example`。实际结果见 [验收记录](docs/VERIFICATION.md)。
 
