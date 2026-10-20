@@ -185,7 +185,7 @@ async def _request_answer(
                     502, "model_unavailable", "模型服务暂时不可用，请稍后重试。"
                 )
                 retryable = exc.status_code >= 500
-        except APIResponseValidationError, ValueError, TypeError, AttributeError:
+        except (APIResponseValidationError, ValueError, TypeError, AttributeError):
             error = ChatServiceError(
                 502, "model_invalid_response", "模型未返回有效答案，请稍后重试。"
             )

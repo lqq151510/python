@@ -134,7 +134,7 @@ def _ensure_request_matches(turn: ChatTurn, request_hash: str) -> None:
 def _sources_from_turn(turn: ChatTurn) -> list[dict[str, object]]:
     try:
         sources = json.loads(turn.sources_json)
-    except TypeError, json.JSONDecodeError:
+    except (TypeError, json.JSONDecodeError):
         raise HTTPException(
             status_code=500,
             detail={"code": "chat_history_corrupt", "message": "历史记录无法读取。"},
