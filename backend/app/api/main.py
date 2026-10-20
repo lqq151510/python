@@ -1,6 +1,7 @@
 from fastapi import APIRouter
 
 from app.api.routes import (
+    aigc,
     chat,
     code,
     documents,
@@ -22,6 +23,7 @@ api_router.include_router(chat.router)
 api_router.include_router(code.router)
 api_router.include_router(documents.router)
 api_router.include_router(learning.router)
+api_router.include_router(aigc.router)
 
 
 if settings.FASTAPI_ENV == "development":
