@@ -3,6 +3,7 @@
 import asyncio
 import logging
 import uuid
+from datetime import datetime
 from time import monotonic
 
 import httpx
@@ -43,6 +44,7 @@ class ChatRequest(BaseModel):
     use_documents: bool = False
     document_id: uuid.UUID | None = None
     retrieval_method: RetrievalMethod = "bm25"
+    client_request_id: uuid.UUID | None = None
 
     @model_validator(mode="after")
     def validate_document_scope(self) -> ChatRequest:
@@ -59,6 +61,31 @@ class ChatResponse(BaseModel):
     sources: list[KnowledgeSource] = Field(default_factory=list)
     retrieval_method: RetrievalMethod | None = None
     retrieval_warning: str | None = None
+
+
+class ChatHistorySummary(BaseModel):
+    id: uuid.UUID
+    message: str
+    answer_preview: str
+    source_count: int
+    retrieval_method: RetrievalMethod | None = None
+    created_at: datetime
+
+
+class ChatHistoryResponse(BaseModel):
+    data: list[ChatHistorySummary]
+    count: int
+
+
+class ChatHistoryDetail(BaseModel):
+    id: uuid.UUID
+    message: str
+    answer: str
+    request_id: str
+    sources: list[KnowledgeSource] = Field(default_factory=list)
+    retrieval_method: RetrievalMethod | None = None
+    retrieval_warning: str | None = None
+    created_at: datetime
 
 
 class ChatServiceError(Exception):
@@ -158,7 +185,7 @@ async def _request_answer(
                     502, "model_unavailable", "模型服务暂时不可用，请稍后重试。"
                 )
                 retryable = exc.status_code >= 500
-        except APIResponseValidationError, ValueError, TypeError, AttributeError:
+        except (APIResponseValidationError, ValueError, TypeError, AttributeError):
             error = ChatServiceError(
                 502, "model_invalid_response", "模型未返回有效答案，请稍后重试。"
             )

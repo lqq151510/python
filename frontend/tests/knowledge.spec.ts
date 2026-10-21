@@ -99,6 +99,9 @@ test.beforeEach(async ({ page }) => {
   await page.route("**/api/v1/documents", (route) =>
     route.fulfill({ json: { data: [], count: 0 } }),
   )
+  await page.route("**/api/v1/chat/history**", (route) =>
+    route.fulfill({ json: { data: [], count: 0 } }),
+  )
 })
 
 test("uploads multipart with authentication, persists listing and reports duplicates", async ({
