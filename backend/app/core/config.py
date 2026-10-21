@@ -16,6 +16,9 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 DEFAULT_CODE_WORKSPACE_DIR = Path(__file__).resolve().parents[2] / ".local" / "code-workspaces"
 DEFAULT_AIGC_OUTPUT_DIR = Path(__file__).resolve().parents[2] / ".local" / "aigc"
+DEFAULT_IMAGE_LIBRARY_DIR = (
+    Path(__file__).resolve().parents[2] / ".local" / "image-library"
+)
 
 
 class Settings(BaseSettings):
@@ -66,6 +69,8 @@ class Settings(BaseSettings):
     AIGC_HTTP_TIMEOUT_SECONDS: float = Field(default=30, gt=0, le=120)
     AIGC_JOB_TIMEOUT_SECONDS: int = Field(default=3600, gt=0, le=21600)
     AIGC_MAX_PROMPT_CHARS: int = Field(default=2000, gt=0, le=2000)
+
+    IMAGE_LIBRARY_DIR: Path = DEFAULT_IMAGE_LIBRARY_DIR
 
     RAG_WORKER_ENABLED: bool = False
     RAG_WORKER_URL: HttpUrl = HttpUrl("http://127.0.0.1:8765")

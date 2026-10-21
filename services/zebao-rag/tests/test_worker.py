@@ -1,5 +1,6 @@
 """Real ephemeral Chroma + deterministic embeddings; no model or user data."""
 
+import base64
 import json
 import threading
 import unittest
@@ -8,7 +9,7 @@ from urllib.error import HTTPError
 from urllib.request import ProxyHandler, Request, build_opener
 
 from pydantic import ValidationError
-from zebao_rag.worker import Ranker, RankRequest, handler_type
+from zebao_rag.worker import Embedder, Ranker, RankRequest, handler_type
 
 
 def encode(texts, **kwargs):
@@ -76,6 +77,67 @@ class WorkerTests(unittest.TestCase):
                 self.assertEqual(json.load(response)["hits"][0]["id"], "a")
             with self.assertRaises(HTTPError) as caught:
                 opener.open(Request(base + "/rank", data=b"{}", headers=headers))
+            self.assertEqual(caught.exception.code, 422)
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join()
+
+
+class EmbedTests(unittest.TestCase):
+    def test_embed_stays_in_memory_and_rejects_bad_images(self):
+        def encode_text(_texts, **kwargs):
+            self.assertEqual(
+                kwargs.get("instruction"), "Retrieve relevant images for the query."
+            )
+            return [[0.2, 0.8]]
+
+        def encode_image(payloads):
+            self.assertTrue(payloads[0].startswith(b"\xff\xd8\xff"))
+            return [[0.9, 0.1]]
+
+        token = "test-only-token-" * 3
+        embedder = Embedder(encode_text, encode_image)
+        server = ThreadingHTTPServer(
+            ("127.0.0.1", 0), handler_type(Ranker(encode), token, embedder)
+        )
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        base = f"http://127.0.0.1:{server.server_port}"
+        opener = build_opener(ProxyHandler({}))
+        headers = {
+            "Authorization": "Bearer " + token,
+            "Content-Type": "application/json",
+        }
+        try:
+            with self.assertRaises(HTTPError) as caught:
+                opener.open(base + "/embed")
+            self.assertEqual(caught.exception.code, 401)
+            data = json.dumps(
+                {"kind": "text", "text": "药品包装", "is_query": True}
+            ).encode()
+            with opener.open(
+                Request(base + "/embed", data=data, headers=headers)
+            ) as response:
+                self.assertEqual(json.load(response)["vector"], [0.2, 0.8])
+            image = json.dumps(
+                {
+                    "kind": "image",
+                    "image_base64": base64.b64encode(b"\xff\xd8\xfffake").decode(),
+                    "path": "/tmp/secret.jpg",
+                }
+            ).encode()
+            with self.assertRaises(HTTPError) as caught:
+                opener.open(Request(base + "/embed", data=image, headers=headers))
+            self.assertEqual(caught.exception.code, 422)
+            bad = json.dumps(
+                {
+                    "kind": "image",
+                    "image_base64": base64.b64encode(b"not-an-image").decode(),
+                }
+            ).encode()
+            with self.assertRaises(HTTPError) as caught:
+                opener.open(Request(base + "/embed", data=bad, headers=headers))
             self.assertEqual(caught.exception.code, 422)
         finally:
             server.shutdown()
