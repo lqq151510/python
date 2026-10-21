@@ -9,6 +9,8 @@ from app.api.main import api_router
 from app.core.config import settings
 
 FRONTEND_DIR = Path(__file__).parent / "frontend"
+# 本机开发时前端可能用 localhost 或 127.0.0.1 访问，两个地址都需要放行。
+LOCAL_DEV_FRONTEND_ORIGINS = ["http://localhost:5173", "http://127.0.0.1:5173"]
 
 
 def custom_generate_unique_id(route: APIRoute) -> str:
@@ -26,7 +28,7 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[settings.FRONTEND_HOST],
+    allow_origins=sorted({settings.FRONTEND_HOST, *LOCAL_DEV_FRONTEND_ORIGINS}),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
