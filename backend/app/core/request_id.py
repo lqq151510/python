@@ -13,6 +13,18 @@ from app.core.observability import install_request_log_redaction, request_id_con
 
 logger = logging.getLogger(__name__)
 
+# 本机开发时前端可能用 localhost 或 127.0.0.1，500 响应也要按这个来源回 CORS。
+LOCAL_DEV_FRONTEND_ORIGINS = ("http://localhost:5173", "http://127.0.0.1:5173")
+
+
+def _apply_error_cors(response: Response, origin: str | None) -> None:
+    if origin not in {settings.FRONTEND_HOST, *LOCAL_DEV_FRONTEND_ORIGINS}:
+        return
+    response.headers["Access-Control-Allow-Origin"] = origin
+    response.headers["Access-Control-Allow-Credentials"] = "true"
+    response.headers["Access-Control-Expose-Headers"] = "X-Request-ID"
+    response.headers["Vary"] = "Origin"
+
 
 class APIRequestIDMiddleware(BaseHTTPMiddleware):
     """Correlate all API responses and log bounded, sanitized request fields."""
@@ -46,13 +58,7 @@ class APIRequestIDMiddleware(BaseHTTPMiddleware):
                         }
                     },
                 )
-                if request.headers.get("Origin") == settings.FRONTEND_HOST:
-                    response.headers["Access-Control-Allow-Origin"] = (
-                        settings.FRONTEND_HOST
-                    )
-                    response.headers["Access-Control-Allow-Credentials"] = "true"
-                    response.headers["Access-Control-Expose-Headers"] = "X-Request-ID"
-                    response.headers["Vary"] = "Origin"
+                _apply_error_cors(response, request.headers.get("Origin"))
         finally:
             request_id_context.reset(context_token)
         response.headers["X-Request-ID"] = request_id
