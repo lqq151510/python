@@ -6,6 +6,7 @@
 
 import os
 from functools import lru_cache
+from io import BytesIO
 
 # transformers 5.x 默认用线程池并发加载权重；在 Apple Silicon + MPS 上
 # load_adapter() 偶发 SIGSEGV（exit 139），线程池里做 _materialize_copy 时崩。
@@ -73,12 +74,22 @@ def encode_texts(
 
 
 def encode_images(paths: list[str]) -> list[list[float]]:
+    return _encode_loaded([Image.open(path).convert("RGB") for path in paths])
+
+
+def encode_image_bytes(payloads: list[bytes]) -> list[list[float]]:
+    """从内存编码图片，不接收调用方给的文件路径。"""
+    return _encode_loaded(
+        [Image.open(BytesIO(payload)).convert("RGB") for payload in payloads]
+    )
+
+
+def _encode_loaded(images: list[Image.Image]) -> list[list[float]]:
     model = get_model()
-    imgs = [Image.open(p).convert("RGB") for p in paths]
     vec = model.encode(
-        imgs,
+        images,
         normalize_embeddings=True,
         convert_to_numpy=True,
-        show_progress_bar=len(paths) > 8,
+        show_progress_bar=len(images) > 8,
     )
     return vec.tolist()

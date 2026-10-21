@@ -1,10 +1,12 @@
 from fastapi import APIRouter
 
 from app.api.routes import (
+    agent,
     aigc,
     chat,
     code,
     documents,
+    images,
     items,
     learning,
     login,
@@ -22,6 +24,8 @@ api_router.include_router(items.router)
 api_router.include_router(chat.router)
 api_router.include_router(code.router)
 api_router.include_router(documents.router)
+api_router.include_router(images.router)
+api_router.include_router(agent.router)
 api_router.include_router(learning.router)
 api_router.include_router(aigc.router)
 

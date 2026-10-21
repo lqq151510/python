@@ -30,6 +30,8 @@ function Layout() {
   if (
     path === "/chat" ||
     path === "/knowledge" ||
+    path === "/images" ||
+    path === "/agent" ||
     path === "/learning" ||
     path === "/aigc"
   ) {
