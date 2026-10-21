@@ -1,4 +1,5 @@
 import warnings
+from pathlib import Path
 from typing import Literal, Self
 
 from pydantic import (
@@ -12,6 +13,8 @@ from pydantic import (
     model_validator,
 )
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+DEFAULT_CODE_WORKSPACE_DIR = Path(__file__).resolve().parents[2] / ".local" / "code-workspaces"
 
 
 class Settings(BaseSettings):
@@ -38,6 +41,19 @@ class Settings(BaseSettings):
     CHAT_TOTAL_TIMEOUT_SECONDS: float = Field(default=30, gt=0, le=30)
     CHAT_CONNECT_TIMEOUT_SECONDS: float = Field(default=5, gt=0, le=5)
     CHAT_MAX_TOKENS: int = Field(default=1024, gt=0, le=1024)
+
+    CODE_API_FORMAT: Literal[
+        "openai_chat_completions",
+        "openai_responses",
+        "anthropic_messages",
+        "gemini_generate_content",
+    ] = "openai_chat_completions"
+    CODE_API_KEY: SecretStr | None = None
+    CODE_BASE_URL: HttpUrl | None = None
+    CODE_MODEL: str | None = Field(default=None, min_length=1, max_length=128)
+    CODE_MAX_OUTPUT_TOKENS: int = Field(default=4096, gt=0, le=4096)
+    CODE_TIMEOUT_SECONDS: float = Field(default=60, gt=0, le=120)
+    CODE_WORKSPACE_DIR: Path = DEFAULT_CODE_WORKSPACE_DIR
 
     RAG_WORKER_ENABLED: bool = False
     RAG_WORKER_URL: HttpUrl = HttpUrl("http://127.0.0.1:8765")

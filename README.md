@@ -11,7 +11,7 @@ Milvus 提供应用向量检索，Chroma 用于同模型同资料的本地对照
 
 项目知识与故障排查助手，服务于 Python AI 应用与智能体开发学习、作品集和面试准备。
 
-第一阶段实现登录后的单轮模型问答。第二阶段新增 Markdown/TXT 导入、按用户隔离的文档知识库、BM25 关键词检索和来源片段展示；聊天页可选择将检索资料提供给模型。第三阶段接入本机向量与混合检索，已验证真实本地 Embedding 调用；真实生成模型验收仍暂缓，网页问答保持单轮，不持久化聊天记录。
+聊天工作台现在分为 RAG 知识问答与编程智能体两种模式。RAG 保留 Markdown/TXT 知识库、关键词/语义/混合检索和来源片段；编程模式提供按账号隔离的应用沙箱、文件附件、Goal/Plan、候选改动预览与权限控制。聊天仍按单轮请求处理，不持久化回答。
 
 浅色界面已接入真实主应用：问答页提供独立来源面板和“只检索原文”按钮，知识库页可以将检索问题带到问答页。不填写模型密钥也能完成文档上传、持久保存、检索与原文核对。实际验收和回滚范围见 [浅色界面接入记录](docs/LIGHT_UI.md)。
 
@@ -25,6 +25,22 @@ Milvus 提供应用向量检索，Chroma 用于同模型同资料的本地对照
 - 前端：React、TypeScript、Vite、TanStack Router/Query，使用 Bun。
 - 数据库：本地 Docker PostgreSQL 16 Alpine，独立 `devassist` Compose 项目和持久化卷。采用已有镜像减少首次下载，并同步调整了对应的数据目录。
 - 生成模型：DeepSeek 官方 `deepseek-flash`，普通 JSON、非思考模式，输出上限 1024 tokens。
+- 编程模型：服务端可配置 OpenAI Chat Completions 兼容、OpenAI Responses、Anthropic Messages、Gemini `generateContent` 接口；模式各自解析请求和响应格式，不在浏览器保存 API 密钥。
+
+## 编程工作台与模型配置
+
+默认复用已有 DeepSeek Chat Completions 配置。要为编程模式换用其他服务，在根目录 `.env` 设置 `CODE_API_FORMAT`、`CODE_API_KEY`、`CODE_BASE_URL` 和 `CODE_MODEL`；配置格式见 `.env.example`。Responses 使用 `input`/`output`，Anthropic 使用 Messages 的 `system`/`messages`，Gemini 使用 `contents`/`systemInstruction`。项目仅支持这些文本生成接口，不启用模型侧工具。
+
+编程工作区只按当前登录账号读写应用维护的目录，初始文件来自用户上传的 UTF-8 代码或文本文档。上传上限为每个文件 512 KiB、每账号 50 个文件/4 MiB；每次模型请求最多读取 20 个勾选文件、总计 64 KiB。候选改动写入前需经过权限检查和人工确认。完整权限仅涵盖应用沙箱；本版本没有终端命令执行能力，也不会读取用户主机上的项目目录。
+
+| `CODE_API_FORMAT` | 服务端请求格式 | 说明 |
+|---|---|---|
+| `openai_chat_completions` | `/v1/chat/completions` | 默认兼容格式；未填独立密钥时复用 `DEEPSEEK_*` |
+| `openai_responses` | `/v1/responses` | 可设置 `CODE_BASE_URL=https://api.openai.com/v1` |
+| `anthropic_messages` | `/v1/messages` | 默认指向 Anthropic API |
+| `gemini_generate_content` | `/v1beta/models/{model}:generateContent` | 通过 `x-goog-api-key` 传入服务端密钥 |
+
+第三方兼容代理的 `CODE_BASE_URL` 由管理员配置，必须是 API 根地址，不能带密钥或查询参数。环境配置修改后重启后端。
 
 ## 本地启动
 
@@ -62,6 +78,19 @@ bash scripts/devassist-dev.sh
 普通问答成功返回 `{ "answer": "最终答案", "request_id": "请求标识" }`；文档模式还返回 `sources`，包含文件名、标题、行号、原文片段与引用编号。所有该接口的响应都有 `X-Request-ID`，包括未登录和校验失败；CORS 允许前端读取该标头。
 
 输入错误沿用 FastAPI 422 格式。模型错误返回 `detail: { code, message }`，不会直接暴露供应商原始异常。
+
+编程工作台接口也需要登录，服务端从当前用户 ID 选择专属沙箱目录：
+
+| 接口 | 功能 |
+|---|---|
+| `GET /api/v1/code/config` | 返回非敏感的代码模型格式、模型名和配置状态 |
+| `GET /api/v1/code/workspace` | 列出当前用户的沙箱文件 |
+| `GET /api/v1/code/workspace/files/{path}` | 读取当前用户沙箱中的受限文本文件 |
+| `POST /api/v1/code/workspace/files` | multipart `files` 上传，最多 10 个代码/文本附件 |
+| `POST /api/v1/code/generate` | 根据 Goal、任务和选中文件生成计划及候选改动 |
+| `POST /api/v1/code/workspace/apply` | 经权限及确认字段校验后写入候选改动 |
+
+上传及模型生成均有请求体、文件数、上下文长度、输出文件数和超时上限。所有接口只操作当前账号的沙箱；模型服务 API Key 不返回给前端。
 
 | 条件 | HTTP 状态 |
 |---|---|

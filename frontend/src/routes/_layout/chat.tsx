@@ -3,15 +3,21 @@ import { createFileRoute, Link } from "@tanstack/react-router"
 import {
   Bot,
   Check,
+  Code2,
   Copy,
+  FileText,
   LoaderCircle,
   MessageSquare,
+  Paperclip,
   Search,
   Send,
   TriangleAlert,
   UserRound,
+  X,
 } from "lucide-react"
-import { type FormEvent, useEffect, useRef, useState } from "react"
+import { useQueryClient } from "@tanstack/react-query"
+import { type ChangeEvent, type FormEvent, useEffect, useRef, useState } from "react"
+import { CodeWorkspace } from "@/components/Common/CodeWorkspace"
 import { DevAssistHeader } from "@/components/Common/DevAssistLayout"
 import { DocumentScope } from "@/components/Common/DocumentScope"
 import { KnowledgeSourcePanel } from "@/components/Common/KnowledgeSourcePanel"
@@ -28,6 +34,7 @@ import {
   listDocuments,
   searchDocuments,
   validDocumentId,
+  uploadDocument,
 } from "@/lib/knowledge"
 
 export const Route = createFileRoute("/_layout/chat")({
@@ -55,7 +62,9 @@ function Chat() {
     method: requestedMethod,
   } = Route.useSearch()
   const { user } = useAuth()
+  const queryClient = useQueryClient()
   const [message, setMessage] = useState(question ?? "")
+  const [mode, setMode] = useState<"rag" | "code">("rag")
   const [useDocuments, setUseDocuments] = useState(
     Boolean(question || requestedDocument),
   )
@@ -76,7 +85,10 @@ function Chat() {
     enabled: Boolean(user),
   })
   const [copyNotice, setCopyNotice] = useState("")
-  const busy = mutation.isPending || retrieval.isPending
+  const [uploadingDocument, setUploadingDocument] = useState(false)
+  const [attachedDocumentId, setAttachedDocumentId] = useState("")
+  const attachmentInput = useRef<HTMLInputElement>(null)
+  const busy = mutation.isPending || retrieval.isPending || uploadingDocument
   const sources = mutation.data?.sources ?? retrieval.data?.sources ?? []
   useEffect(() => {
     setMessage(question ?? "")
@@ -84,6 +96,11 @@ function Chat() {
     setMethod(requestedMethod ?? "bm25")
     if (question || requestedDocument) setUseDocuments(true)
   }, [question, requestedDocument, requestedMethod])
+  useEffect(() => {
+    if (!user) return
+    const savedMode = localStorage.getItem(`devassist-chat-mode:${user.id}`)
+    if (savedMode === "rag" || savedMode === "code") setMode(savedMode)
+  }, [user])
   const characterCount = Array.from(message.trim()).length
   const error = mutation.isError ? describeChatError(mutation.error) : null
 
@@ -143,6 +160,29 @@ function Chat() {
     }
   }
 
+  async function handleDocumentAttachment(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0]
+    event.target.value = ""
+    if (!file) return
+    if (file.size > 256 * 1024) {
+      setValidationError("RAG 附件不能超过 256 KiB。")
+      return
+    }
+    setUploadingDocument(true)
+    setValidationError("")
+    try {
+      const result = await uploadDocument(file)
+      await queryClient.invalidateQueries({ queryKey: ["documents", user?.id] })
+      setAttachedDocumentId(result.document.id)
+      setScope(result.document.id)
+      setUseDocuments(true)
+    } catch (error) {
+      setValidationError(describeKnowledgeError(error))
+    } finally {
+      setUploadingDocument(false)
+    }
+  }
+
   async function copyAnswer() {
     if (!mutation.data) return
     try {
@@ -155,7 +195,32 @@ function Chat() {
 
   return (
     <>
-      <DevAssistHeader />
+      <DevAssistHeader code={mode === "code"} />
+      <div className="da-mode-switch" role="group" aria-label="工作模式">
+        <button
+          type="button"
+          aria-pressed={mode === "rag"}
+          className={mode === "rag" ? "is-active" : ""}
+          onClick={() => {
+            setMode("rag")
+            if (user) localStorage.setItem(`devassist-chat-mode:${user.id}`, "rag")
+          }}
+        >
+          <Search size={18} aria-hidden="true" /> RAG 知识问答
+        </button>
+        <button
+          type="button"
+          aria-pressed={mode === "code"}
+          className={mode === "code" ? "is-active" : ""}
+          onClick={() => {
+            setMode("code")
+            if (user) localStorage.setItem(`devassist-chat-mode:${user.id}`, "code")
+          }}
+        >
+          <Code2 size={18} aria-hidden="true" /> 编程智能体
+        </button>
+      </div>
+      {mode === "code" ? <CodeWorkspace /> : (
       <div className="da-workbench">
         <section className="da-question-column" aria-label="问答">
           {submittedMessage && (
@@ -328,6 +393,41 @@ function Chat() {
                 }}
               />
             )}
+            <div className="da-attachment-row">
+                <input
+                  ref={attachmentInput}
+                  type="file"
+                  accept=".md,.txt,text/plain,text/markdown"
+                  hidden
+                  disabled={busy}
+                  onChange={(event) => void handleDocumentAttachment(event)}
+                />
+                <button
+                  type="button"
+                  className="da-secondary"
+                  disabled={busy}
+                  onClick={() => attachmentInput.current?.click()}
+                >
+                  {uploadingDocument ? <LoaderCircle className="animate-spin" size={17} /> : <Paperclip size={17} />}
+                  添加文档附件
+                </button>
+                <small>Markdown / TXT，单个文件最大 256 KiB</small>
+                {attachedDocumentId && (
+                  <span className="da-attachment-chip">
+                    <FileText size={16} aria-hidden="true" />
+                    {documents.data?.data.find((document) => document.id === attachedDocumentId)?.filename ?? "已附加文档"}
+                    <button
+                      type="button"
+                      aria-label="移除本次文档附件"
+                      disabled={busy}
+                      onClick={() => {
+                        setAttachedDocumentId("")
+                        if (scope === attachedDocumentId) setScope("")
+                      }}
+                    ><X size={16} aria-hidden="true" /></button>
+                  </span>
+                )}
+            </div>
             <div className="da-composer-controls">
               <label className="da-toggle">
                 <input
@@ -375,6 +475,7 @@ function Chat() {
         </section>
         <KnowledgeSourcePanel sources={sources} loading={retrieval.isPending} />
       </div>
+      )}
     </>
   )
 }
