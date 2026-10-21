@@ -7,6 +7,8 @@ from starlette.middleware.cors import CORSMiddleware
 
 from app.api.main import api_router
 from app.core.config import settings
+from app.core.request_id import ChatRequestIDMiddleware
+from app.core.upload_limit import DocumentUploadLimitMiddleware
 
 FRONTEND_DIR = Path(__file__).parent / "frontend"
 
@@ -24,13 +26,17 @@ app = FastAPI(
     generate_unique_id_function=custom_generate_unique_id,
 )
 
+app.add_middleware(DocumentUploadLimitMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[settings.FRONTEND_HOST],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["X-Request-ID"],
 )
+app.add_middleware(ChatRequestIDMiddleware)
 
 app.include_router(api_router, prefix=settings.API_V1_STR)
-app.frontend("/", directory=FRONTEND_DIR)
+if FRONTEND_DIR.is_dir():
+    app.frontend("/", directory=FRONTEND_DIR)
