@@ -1,3 +1,4 @@
+import json
 import logging
 from collections.abc import Awaitable, Callable
 from time import monotonic
@@ -8,45 +9,70 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
 from app.core.config import settings
+from app.core.observability import install_request_log_redaction, request_id_context
 
 logger = logging.getLogger(__name__)
 
 
-class ChatRequestIDMiddleware(BaseHTTPMiddleware):
+class APIRequestIDMiddleware(BaseHTTPMiddleware):
+    """Correlate all API responses and log bounded, sanitized request fields."""
+
     async def dispatch(
         self, request: Request, call_next: Callable[[Request], Awaitable[Response]]
     ) -> Response:
-        if request.url.path.rstrip("/") != f"{settings.API_V1_STR}/chat":
+        path = request.url.path.rstrip("/")
+        if path != settings.API_V1_STR and not path.startswith(
+            settings.API_V1_STR + "/"
+        ):
             return await call_next(request)
         request_id = str(uuid4())
         request.state.request_id = request_id
+        context_token = request_id_context.set(request_id)
         started_at = monotonic()
+        error_type = None
         try:
-            response = await call_next(request)
-        except Exception:
-            # Do not serialize or log the original exception: SDK exceptions may
-            # contain provider payloads or credentials. Always preserve the ID.
-            request.state.chat_error_code = "internal_error"
-            response = JSONResponse(
-                status_code=500,
-                content={
-                    "detail": {
-                        "code": "internal_error",
-                        "message": "服务暂时出现异常，请稍后重试。",
-                    }
-                },
-            )
-            if request.headers.get("Origin") == settings.FRONTEND_HOST:
-                response.headers["Access-Control-Allow-Origin"] = settings.FRONTEND_HOST
-                response.headers["Access-Control-Allow-Credentials"] = "true"
-                response.headers["Access-Control-Expose-Headers"] = "X-Request-ID"
-                response.headers["Vary"] = "Origin"
+            try:
+                response = await call_next(request)
+            except Exception as error:
+                # Provider exceptions can contain credentials or private payloads.
+                error_type = type(error).__name__
+                request.state.chat_error_code = "internal_error"
+                response = JSONResponse(
+                    status_code=500,
+                    content={
+                        "detail": {
+                            "code": "internal_error",
+                            "message": "服务暂时出现异常，请稍后重试。",
+                        }
+                    },
+                )
+                if request.headers.get("Origin") == settings.FRONTEND_HOST:
+                    response.headers["Access-Control-Allow-Origin"] = (
+                        settings.FRONTEND_HOST
+                    )
+                    response.headers["Access-Control-Allow-Credentials"] = "true"
+                    response.headers["Access-Control-Expose-Headers"] = "X-Request-ID"
+                    response.headers["Vary"] = "Origin"
+        finally:
+            request_id_context.reset(context_token)
         response.headers["X-Request-ID"] = request_id
         logger.info(
-            "chat_request request_id=%s elapsed_ms=%s status_code=%s error_code=%s",
-            request_id,
-            round((monotonic() - started_at) * 1000),
-            response.status_code,
-            getattr(request.state, "chat_error_code", None),
+            json.dumps(
+                {
+                    "event": "api_request",
+                    "request_id": request_id,
+                    "method": request.method,
+                    "route": getattr(request.scope.get("route"), "path", "<unmatched>"),
+                    "elapsed_ms": round((monotonic() - started_at) * 1000, 3),
+                    "status_code": response.status_code,
+                    "error_code": getattr(request.state, "chat_error_code", None),
+                    "error_type": error_type,
+                },
+                ensure_ascii=False,
+            ),
         )
         return response
+
+
+# httpx 会原样记录 URL，其中的路径片段与查询参数属于私密数据。
+install_request_log_redaction()
