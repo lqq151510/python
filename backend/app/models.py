@@ -182,3 +182,37 @@ class ChatTurn(SQLModel, table=True):
     )
 
     retrieval_warning: str | None = Field(default=None, max_length=64)
+
+
+class AigcJob(SQLModel, table=True):
+    """一次 AIGC 视频生成任务。
+
+    状态机：queued -> running -> succeeded | failed | canceled。
+    ComfyUI 单卡串行，所以 queued 允许排队；progress 是按下单时给出的耗时公式
+    估算的（ComfyUI 只提供 websocket 级别的逐步骤进度，走 HTTP 拿不到）。
+    """
+
+    __table_args__ = (
+        Index("ix_aigcjob_owner_created_at", "owner_id", "created_at"),
+        Index("ix_aigcjob_status_created_at", "status", "created_at"),
+    )
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    owner_id: uuid.UUID = Field(foreign_key="user.id", ondelete="CASCADE", index=True)
+    kind: str = Field(default="text2video", max_length=16)
+    status: str = Field(default="queued", max_length=16, index=True)
+    prompt: str = Field(sa_type=Text)
+    params_json: str = Field(sa_type=Text)
+    status_message: str | None = Field(default=None, max_length=120)
+    progress: int = Field(default=0)
+    comfy_prompt_id: str | None = Field(default=None, max_length=64)
+    input_image_relpath: str | None = Field(default=None, max_length=512)
+    input_image_name: str | None = Field(default=None, max_length=255)
+    output_relpath: str | None = Field(default=None, max_length=512)
+    error_code: str | None = Field(default=None, max_length=64)
+    error_message: str | None = Field(default=None, max_length=500)
+    created_at: datetime = Field(
+        default_factory=get_datetime_utc, sa_type=DateTime(timezone=True)
+    )
+    started_at: datetime | None = Field(default=None, sa_type=DateTime(timezone=True))
+    finished_at: datetime | None = Field(default=None, sa_type=DateTime(timezone=True))
