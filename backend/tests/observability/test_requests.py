@@ -85,6 +85,19 @@ def test_http_errors_keep_correlation(
     assert events(caplog)[0]["status_code"] == status
 
 
+def test_unhandled_failure_cors_allows_loopback_and_rejects_other_origins() -> None:
+    foreign_origin = "https://evil.example"
+    assert foreign_origin != settings.FRONTEND_HOST
+    with TestClient(application()) as client:
+        allowed = client.get(
+            "/api/v1/crash", headers={"Origin": "http://127.0.0.1:5173"}
+        )
+        rejected = client.get("/api/v1/crash", headers={"Origin": foreign_origin})
+    assert allowed.status_code == 500
+    assert allowed.headers["access-control-allow-origin"] == "http://127.0.0.1:5173"
+    assert "access-control-allow-origin" not in rejected.headers
+
+
 def test_unhandled_failure_is_safe_and_observable(
     caplog: pytest.LogCaptureFixture,
 ) -> None:

@@ -11,7 +11,7 @@ from app import aigc_runner
 from app.api.main import api_router
 from app.core.config import settings
 from app.core.db import engine
-from app.core.request_id import APIRequestIDMiddleware
+from app.core.request_id import LOCAL_DEV_FRONTEND_ORIGINS, APIRequestIDMiddleware
 from app.core.upload_limit import DocumentUploadLimitMiddleware
 
 FRONTEND_DIR = Path(__file__).parent / "frontend"
@@ -48,7 +48,7 @@ app = FastAPI(
 app.add_middleware(DocumentUploadLimitMiddleware)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[settings.FRONTEND_HOST],
+    allow_origins=sorted({settings.FRONTEND_HOST, *LOCAL_DEV_FRONTEND_ORIGINS}),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
