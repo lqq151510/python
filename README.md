@@ -153,6 +153,18 @@ PLAYWRIGHT_BROWSER_CHANNEL=chrome bunx --no-install playwright test -c playwrigh
 
 独立 UI 测试使用模拟接口，只证明页面行为。真实登录、PostgreSQL 联调与真实 DeepSeek 调用须单独验证；缺少密钥时不会把模拟答案计作真实模型成果。
 
+真实模型问答已经用本机 Ollama 的 OpenAI 兼容端点补验一次（模型不是 DeepSeek 云端）：登录、上传、检索、生成、落库、历史接口全部走通，但 1.5B 模型存在引用写错和越界问题被误答的情况。命令、逐条结果和限制见 [真实模型问答验证](docs/LLM_CHAT.md)。
+
+```bash
+export SMOKE_PASSWORD='换成你的本地测试密码'
+cd backend
+# 后端需先按该文档注入 DEEPSEEK_BASE_URL/DEEPSEEK_MODEL 等环境变量
+../.venv/bin/python scripts/smoke-llm-chat.py \
+  --email llm-smoke@example.com --password "$SMOKE_PASSWORD" \
+  --doc ../docs/VERIFICATION.md --doc ../docs/PHASE2.md \
+  --question '小型人工检索评估一共用了多少个样例？' --methods bm25
+```
+
 AIGC 生成页的浏览器验证（需要假 ComfyUI、后端、前端三个进程，完整步骤见 [docs/AIGC.md](docs/AIGC.md)）：
 
 ```bash
@@ -165,6 +177,6 @@ PLAYWRIGHT_BROWSER_CHANNEL=chrome PLAYWRIGHT_BASE_URL=http://localhost:5173 \
 
 ## 学习与后续
 
-阅读 [第一阶段学习说明](docs/LEARNING.md)、[第二阶段说明](docs/PHASE2.md) 与 [第三阶段整合记录](docs/ZEBAO_RAG_INTEGRATION.md)，理解请求链和文档解析、分块、检索的区别。后续评估混合检索与真实模型回答，再把多模态、受控工具和有状态 Agent 接入网页。
+阅读 [第一阶段学习说明](docs/LEARNING.md)、[第二阶段说明](docs/PHASE2.md) 与 [第三阶段整合记录](docs/ZEBAO_RAG_INTEGRATION.md)，理解请求链和文档解析、分块、检索的区别。真实模型回答已用本地小模型补验，下一步换成质量更好的模型复测引用与拒答，再评估混合检索，最后把多模态、受控工具和有状态 Agent 接入网页。
 
 本机 Docker 已有另一项服务使用 IPv6 的 8000 端口，因此本项目明确使用 IPv4 API 地址 `http://127.0.0.1:8000`，前端仍为 `http://localhost:5173`。

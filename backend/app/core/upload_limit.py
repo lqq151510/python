@@ -7,6 +7,8 @@ from app.knowledge import MAX_FILE_BYTES
 
 MAX_UPLOAD_BODY_BYTES = MAX_FILE_BYTES + 64 * 1024
 MAX_CODE_UPLOAD_BODY_BYTES = 5 * 1024 * 1024
+MAX_IMAGE_BYTES = 1_500_000
+MAX_IMAGE_UPLOAD_BODY_BYTES = MAX_IMAGE_BYTES + 64 * 1024
 UPLOAD_ERROR = {
     "code": "upload_body_too_large",
     "message": "上传请求过大，请使用不超过 256 KiB 的单个文档。",
@@ -14,6 +16,10 @@ UPLOAD_ERROR = {
 CODE_UPLOAD_ERROR = {
     "code": "code_upload_body_too_large",
     "message": "代码附件总大小不能超过 5 MiB。",
+}
+IMAGE_UPLOAD_ERROR = {
+    "code": "image_too_large",
+    "message": "单张图片不能超过 1.5 MB。",
 }
 
 
@@ -32,6 +38,11 @@ class DocumentUploadLimitMiddleware:
             max_body_bytes, error = MAX_UPLOAD_BODY_BYTES, UPLOAD_ERROR
         elif path == f"{settings.API_V1_STR}/code/workspace/files":
             max_body_bytes, error = MAX_CODE_UPLOAD_BODY_BYTES, CODE_UPLOAD_ERROR
+        elif path in {
+            f"{settings.API_V1_STR}/images",
+            f"{settings.API_V1_STR}/images/search-by-image",
+        }:
+            max_body_bytes, error = MAX_IMAGE_UPLOAD_BODY_BYTES, IMAGE_UPLOAD_ERROR
         else:
             await self.app(scope, receive, send)
             return

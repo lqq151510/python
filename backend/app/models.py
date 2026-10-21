@@ -216,3 +216,64 @@ class AigcJob(SQLModel, table=True):
     )
     started_at: datetime | None = Field(default=None, sa_type=DateTime(timezone=True))
     finished_at: datetime | None = Field(default=None, sa_type=DateTime(timezone=True))
+
+
+class ImageAsset(SQLModel, table=True):
+    """当前用户上传的图片。向量只属于这一行，不进入命令行的全局图库。"""
+
+    __table_args__ = (
+        UniqueConstraint("owner_id", "sha256", name="uq_imageasset_owner_sha256"),
+    )
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    owner_id: uuid.UUID = Field(foreign_key="user.id", ondelete="CASCADE", index=True)
+    filename: str = Field(max_length=255)
+    sha256: str = Field(max_length=64)
+    size_bytes: int
+    media_type: str = Field(max_length=32)
+    embedding_json: str = Field(sa_type=Text)
+    created_at: datetime = Field(
+        default_factory=get_datetime_utc, sa_type=DateTime(timezone=True)
+    )
+
+
+class AgentSession(SQLModel, table=True):
+    """网页多轮 Agent 会话，按登录用户隔离，不使用命令行的会话文件。"""
+
+    __table_args__ = (
+        Index("ix_agentsession_owner_updated_at", "owner_id", "updated_at"),
+    )
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    owner_id: uuid.UUID = Field(foreign_key="user.id", ondelete="CASCADE", index=True)
+    title: str = Field(max_length=80)
+    turn_count: int = 0
+    created_at: datetime = Field(
+        default_factory=get_datetime_utc, sa_type=DateTime(timezone=True)
+    )
+    updated_at: datetime = Field(
+        default_factory=get_datetime_utc, sa_type=DateTime(timezone=True)
+    )
+
+
+class AgentTurn(SQLModel, table=True):
+    __table_args__ = (
+        UniqueConstraint("request_id", name="uq_agentturn_request_id"),
+        Index(
+            "ix_agentturn_owner_session_created", "owner_id", "session_id", "created_at"
+        ),
+    )
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    session_id: uuid.UUID = Field(
+        foreign_key="agentsession.id", ondelete="CASCADE", index=True
+    )
+    owner_id: uuid.UUID = Field(foreign_key="user.id", ondelete="CASCADE", index=True)
+    request_id: str = Field(max_length=36)
+    message: str = Field(sa_type=Text)
+    answer: str = Field(sa_type=Text)
+    steps_json: str = Field(default="[]", sa_type=Text)
+    stopped: bool = False
+    created_at: datetime = Field(
+        default_factory=get_datetime_utc, sa_type=DateTime(timezone=True)
+    )

@@ -1,9 +1,11 @@
 import { Link, useRouterState } from "@tanstack/react-router"
 import {
   BookOpen,
+  Bot,
   Clapperboard,
   Code2,
   FileText,
+  Image as ImageIcon,
   LogOut,
   MessageSquare,
   Settings,
@@ -42,6 +44,20 @@ export function DevAssistLayout({ children }: { children: ReactNode }) {
           >
             <FileText size={22} aria-hidden="true" />
             我的知识库
+          </Link>
+          <Link
+            to="/images"
+            aria-current={path === "/images" ? "page" : undefined}
+          >
+            <ImageIcon size={22} aria-hidden="true" />
+            图片检索
+          </Link>
+          <Link
+            to="/agent"
+            aria-current={path === "/agent" ? "page" : undefined}
+          >
+            <Bot size={22} aria-hidden="true" />
+            多轮 Agent
           </Link>
           <Link
             to="/learning"
@@ -97,51 +113,64 @@ export function DevAssistHeader({
   knowledge = false,
   code = false,
   aigc = false,
+  title,
+  description,
+  badge,
 }: {
   knowledge?: boolean
   code?: boolean
   aigc?: boolean
+  title?: string
+  description?: string
+  badge?: string
 }) {
-  const Icon = aigc
-    ? Clapperboard
-    : knowledge
-      ? BookOpen
-      : code
-        ? Code2
-        : MessageSquare
+  const Icon = title
+    ? title.includes("图片")
+      ? ImageIcon
+      : Bot
+    : aigc
+      ? Clapperboard
+      : knowledge
+        ? BookOpen
+        : code
+          ? Code2
+          : MessageSquare
   return (
     <header className="da-header">
       <div>
         <h1>
           <Icon size={31} aria-hidden="true" />
-          {aigc
-            ? "AI 视频生成"
-            : knowledge
-              ? "我的知识库"
-              : code
-                ? "编程智能体"
-                : "问答工作台"}
+          {title ??
+            (aigc
+              ? "AI 视频生成"
+              : knowledge
+                ? "我的知识库"
+                : code
+                  ? "编程智能体"
+                  : "问答工作台")}
         </h1>
         <p>
-          {aigc
-            ? "在本机跑 MiniMax H3：提交任务、排队、看进度，产物只留在自己磁盘上。"
-            : knowledge
-              ? "把项目资料整理好，让每个问题有据可查。"
-              : code
-                ? "从隔离工作区里的上传文件出发，制定计划并审阅代码改动。"
-                : "从项目文档里找到答案，也看见依据。"}
+          {description ??
+            (aigc
+              ? "在本机跑 MiniMax H3：提交任务、排队、看进度，产物只留在自己磁盘上。"
+              : knowledge
+                ? "把项目资料整理好，让每个问题有据可查。"
+                : code
+                  ? "从隔离工作区里的上传文件出发，制定计划并审阅代码改动。"
+                  : "从项目文档里找到答案，也看见依据。")}
         </p>
       </div>
       <div className="da-header-meta">
         <span className="da-badge">本地应用</span>
         <span>
-          {aigc
-            ? "ComfyUI 单并发"
-            : knowledge
-              ? "文档持久保存"
-              : code
-                ? "应用隔离沙箱"
-                : "单轮问答"}
+          {badge ??
+            (aigc
+              ? "ComfyUI 单并发"
+              : knowledge
+                ? "文档持久保存"
+                : code
+                  ? "应用隔离沙箱"
+                  : "单轮问答")}
         </span>
       </div>
     </header>

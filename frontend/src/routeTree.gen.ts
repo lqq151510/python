@@ -16,8 +16,10 @@ import { Route as ResetPasswordRouteImport } from './routes/reset-password'
 import { Route as SignupRouteImport } from './routes/signup'
 import { Route as LayoutIndexRouteImport } from './routes/_layout/index'
 import { Route as LayoutAdminRouteImport } from './routes/_layout/admin'
+import { Route as LayoutAgentRouteImport } from './routes/_layout/agent'
 import { Route as LayoutAigcRouteImport } from './routes/_layout/aigc'
 import { Route as LayoutChatRouteImport } from './routes/_layout/chat'
+import { Route as LayoutImagesRouteImport } from './routes/_layout/images'
 import { Route as LayoutItemsRouteImport } from './routes/_layout/items'
 import { Route as LayoutKnowledgeRouteImport } from './routes/_layout/knowledge'
 import { Route as LayoutLearningRouteImport } from './routes/_layout/learning'
@@ -57,6 +59,11 @@ const LayoutAdminRoute = LayoutAdminRouteImport.update({
   path: '/admin',
   getParentRoute: () => LayoutRoute,
 } as any)
+const LayoutAgentRoute = LayoutAgentRouteImport.update({
+  id: '/agent',
+  path: '/agent',
+  getParentRoute: () => LayoutRoute,
+} as any)
 const LayoutAigcRoute = LayoutAigcRouteImport.update({
   id: '/aigc',
   path: '/aigc',
@@ -65,6 +72,11 @@ const LayoutAigcRoute = LayoutAigcRouteImport.update({
 const LayoutChatRoute = LayoutChatRouteImport.update({
   id: '/chat',
   path: '/chat',
+  getParentRoute: () => LayoutRoute,
+} as any)
+const LayoutImagesRoute = LayoutImagesRouteImport.update({
+  id: '/images',
+  path: '/images',
   getParentRoute: () => LayoutRoute,
 } as any)
 const LayoutItemsRoute = LayoutItemsRouteImport.update({
@@ -95,8 +107,10 @@ export interface FileRoutesByFullPath {
   '/reset-password': typeof ResetPasswordRoute
   '/signup': typeof SignupRoute
   '/admin': typeof LayoutAdminRoute
+  '/agent': typeof LayoutAgentRoute
   '/aigc': typeof LayoutAigcRoute
   '/chat': typeof LayoutChatRoute
+  '/images': typeof LayoutImagesRoute
   '/items': typeof LayoutItemsRoute
   '/knowledge': typeof LayoutKnowledgeRoute
   '/learning': typeof LayoutLearningRoute
@@ -108,8 +122,10 @@ export interface FileRoutesByTo {
   '/reset-password': typeof ResetPasswordRoute
   '/signup': typeof SignupRoute
   '/admin': typeof LayoutAdminRoute
+  '/agent': typeof LayoutAgentRoute
   '/aigc': typeof LayoutAigcRoute
   '/chat': typeof LayoutChatRoute
+  '/images': typeof LayoutImagesRoute
   '/items': typeof LayoutItemsRoute
   '/knowledge': typeof LayoutKnowledgeRoute
   '/learning': typeof LayoutLearningRoute
@@ -124,8 +140,10 @@ export interface FileRoutesById {
   '/reset-password': typeof ResetPasswordRoute
   '/signup': typeof SignupRoute
   '/_layout/admin': typeof LayoutAdminRoute
+  '/_layout/agent': typeof LayoutAgentRoute
   '/_layout/aigc': typeof LayoutAigcRoute
   '/_layout/chat': typeof LayoutChatRoute
+  '/_layout/images': typeof LayoutImagesRoute
   '/_layout/items': typeof LayoutItemsRoute
   '/_layout/knowledge': typeof LayoutKnowledgeRoute
   '/_layout/learning': typeof LayoutLearningRoute
@@ -141,8 +159,10 @@ export interface FileRouteTypes {
     | '/reset-password'
     | '/signup'
     | '/admin'
+    | '/agent'
     | '/aigc'
     | '/chat'
+    | '/images'
     | '/items'
     | '/knowledge'
     | '/learning'
@@ -154,8 +174,10 @@ export interface FileRouteTypes {
     | '/reset-password'
     | '/signup'
     | '/admin'
+    | '/agent'
     | '/aigc'
     | '/chat'
+    | '/images'
     | '/items'
     | '/knowledge'
     | '/learning'
@@ -169,8 +191,10 @@ export interface FileRouteTypes {
     | '/reset-password'
     | '/signup'
     | '/_layout/admin'
+    | '/_layout/agent'
     | '/_layout/aigc'
     | '/_layout/chat'
+    | '/_layout/images'
     | '/_layout/items'
     | '/_layout/knowledge'
     | '/_layout/learning'
@@ -237,6 +261,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof LayoutAdminRouteImport
       parentRoute: typeof LayoutRoute
     }
+    '/_layout/agent': {
+      id: '/_layout/agent'
+      path: '/agent'
+      fullPath: '/agent'
+      preLoaderRoute: typeof LayoutAgentRouteImport
+      parentRoute: typeof LayoutRoute
+    }
     '/_layout/aigc': {
       id: '/_layout/aigc'
       path: '/aigc'
@@ -249,6 +280,13 @@ declare module '@tanstack/react-router' {
       path: '/chat'
       fullPath: '/chat'
       preLoaderRoute: typeof LayoutChatRouteImport
+      parentRoute: typeof LayoutRoute
+    }
+    '/_layout/images': {
+      id: '/_layout/images'
+      path: '/images'
+      fullPath: '/images'
+      preLoaderRoute: typeof LayoutImagesRouteImport
       parentRoute: typeof LayoutRoute
     }
     '/_layout/items': {
@@ -284,8 +322,10 @@ declare module '@tanstack/react-router' {
 
 interface LayoutRouteChildren {
   LayoutAdminRoute: typeof LayoutAdminRoute
+  LayoutAgentRoute: typeof LayoutAgentRoute
   LayoutAigcRoute: typeof LayoutAigcRoute
   LayoutChatRoute: typeof LayoutChatRoute
+  LayoutImagesRoute: typeof LayoutImagesRoute
   LayoutItemsRoute: typeof LayoutItemsRoute
   LayoutKnowledgeRoute: typeof LayoutKnowledgeRoute
   LayoutLearningRoute: typeof LayoutLearningRoute
@@ -295,8 +335,10 @@ interface LayoutRouteChildren {
 
 const LayoutRouteChildren: LayoutRouteChildren = {
   LayoutAdminRoute: LayoutAdminRoute,
+  LayoutAgentRoute: LayoutAgentRoute,
   LayoutAigcRoute: LayoutAigcRoute,
   LayoutChatRoute: LayoutChatRoute,
+  LayoutImagesRoute: LayoutImagesRoute,
   LayoutItemsRoute: LayoutItemsRoute,
   LayoutKnowledgeRoute: LayoutKnowledgeRoute,
   LayoutLearningRoute: LayoutLearningRoute,
