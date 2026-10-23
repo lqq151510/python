@@ -1,6 +1,6 @@
 services:
   mysql:
-    image: mysql:8.4
+    image: mysql:9.6
     restart: unless-stopped
     env_file:
       - .local/mysql.env
@@ -16,7 +16,7 @@ services:
       start_period: 30s
 
   redis:
-    image: redis:7.4-alpine
+    image: redis:8.10-alpine
     restart: unless-stopped
     command: ["redis-server", "--appendonly", "yes"]
     ports:
