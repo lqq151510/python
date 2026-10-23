@@ -1,0 +1,20 @@
+{
+  "origin": "zebao-rag (local project by Trae)",
+  "imported_on": "2026-10-16",
+  "files": {
+    "src/zebao_rag/__init__.py": "34163a714a19fae3d008c055cc3931d03f473461bb688b00c3c96b2d2753612b",
+    "src/zebao_rag/agent.py": "43ef7684b364509fb3c8d9963963e72eb16443a75c1c28010f4b29b55f2c9bc1",
+    "src/zebao_rag/chunking.py": "8ac5c14c73e1dea22dac7ed888cbb987e70bcfacd3d1c5950933c6ef0f35b93f",
+    "src/zebao_rag/cli.py": "7e80c24c0a2750f20459a95357fbbd967a94a8a7726cf5202a7c52ea61926d01",
+    "src/zebao_rag/config.py": "d613e8bef6a658f4d75f0e761f02cd0dc83477c8feabba3894d67ab2e1f80cfc",
+    "src/zebao_rag/embedder.py": "e369e9d083ebb9e41b0a8c3fa71ef51a0ea78fe6c0e891ac25a768a90cec4975",
+    "src/zebao_rag/evaluate.py": "8c1f300e0fdced4b2fcaa17ad42c4b3a90cfccaf89bef9bc5b1ec5e269e9aa49",
+    "src/zebao_rag/evaluate_gen.py": "fab3444c6dbf293fa6137da761e8dd13e16cd06e2fdd10502103513e6388efbb",
+    "src/zebao_rag/index.py": "7456ac294ba7744fbe871088663776ac8dd9b9fffe1fa02cd8ac389ae4df1f29",
+    "src/zebao_rag/session.py": "1ae28d5f5842eb47b1c95d99ff21212969458dbed1d949f9620494146232990b",
+    "src/zebao_rag/tools.py": "a0f2fe9b53fd2ef6682cbfd45e4ffc7ea198e0bf1b053171c3b186b3a9302d97",
+    "pyproject.toml": "0947c9904e82d5cce761b2c274675f84f9c9f5eb3825d7ea951171b101ea8005",
+    "uv.lock": "30cf54f9aeb0a254b86a56d594382e6fa3052ede52d2b7d1b2f74a30ce919cd3",
+    ".python-version": "7b55f8e67b5623c4bef3fa691288da9437d79d3aba156de48d481db32ac7d16d"
+  }
+}

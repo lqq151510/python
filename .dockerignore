@@ -8,3 +8,15 @@ frontend/node_modules
 frontend/playwright-report
 frontend/test-results
 node_modules
+
+# Local credentials must never enter build contexts
+.env
+.env.*
+**/.env
+**/.env.*
+.local
+**/.local
+**/playwright/.auth
+services/zebao-rag/data
+services/zebao-rag/chroma_db
+.serena

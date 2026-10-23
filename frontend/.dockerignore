@@ -1,2 +1,11 @@
 node_modules
 dist
+
+# Local credentials must never enter build contexts
+.env
+.env.*
+**/.env
+**/.env.*
+.local
+**/.local
+**/playwright/.auth

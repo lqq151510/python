@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "dataset_id": "devassist-authored-notes-v2",
+  "description": "离线 BM25 诊断基线的非回退门槛；不是生产效果承诺或真实模型评估。",
+  "minimums": {
+    "passed_count": 20,
+    "top1_hit_rate": 0.72,
+    "recall_at_5": 0.88,
+    "mrr_at_5": 0.8,
+    "no_hit_accuracy": 0.5
+  },
+  "maximums": {
+    "false_positive_rate": 0.5
+  }
+}
