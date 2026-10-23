@@ -1,4 +1,4 @@
-from contextlib import asynccontextmanager
+from contextlib import ExitStack, asynccontextmanager
 from pathlib import Path
 
 import sentry_sdk
@@ -9,6 +9,7 @@ from starlette.middleware.cors import CORSMiddleware
 
 from app import aigc_runner
 from app.api.main import api_router
+from app.core.aigc_lock import exclusive_aigc_runner
 from app.core.config import settings
 from app.core.db import engine
 from app.core.request_id import LOCAL_DEV_FRONTEND_ORIGINS, APIRequestIDMiddleware
@@ -27,15 +28,17 @@ if settings.SENTRY_DSN and settings.FASTAPI_ENV != "development":
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
-    """启动时恢复被中断的生成任务，关闭时停掉后台执行线程。"""
-    if settings.AIGC_ENABLED:
-        with Session(engine) as session:
-            aigc_runner.recover_interrupted_jobs(session)
-        aigc_runner.ensure_runner_started()
-    try:
-        yield
-    finally:
-        aigc_runner.stop_runner()
+    """先取得执行器独占权，再恢复任务；停掉线程之后才释放独占权。"""
+    with ExitStack() as resources:
+        if settings.AIGC_ENABLED:
+            resources.enter_context(exclusive_aigc_runner(engine))
+            with Session(engine) as session:
+                aigc_runner.recover_interrupted_jobs(session)
+            aigc_runner.ensure_runner_started()
+        try:
+            yield
+        finally:
+            aigc_runner.stop_runner()
 
 
 app = FastAPI(

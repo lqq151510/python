@@ -101,13 +101,17 @@ function Chat() {
     setMessage(question ?? "")
     setScope(requestedDocument ?? "")
     setMethod(requestedMethod ?? "bm25")
-    if (question || requestedDocument) setUseDocuments(true)
+    if (question || requestedDocument || requestedMethod) setUseDocuments(true)
   }, [question, requestedDocument, requestedMethod])
   useEffect(() => {
+    if (question || requestedDocument || requestedMethod) {
+      setMode("rag")
+      return
+    }
     if (!user) return
     const savedMode = localStorage.getItem(`devassist-chat-mode:${user.id}`)
     if (savedMode === "rag" || savedMode === "code") setMode(savedMode)
-  }, [user])
+  }, [user, question, requestedDocument, requestedMethod])
   const characterCount = Array.from(message.trim()).length
   const error = mutation.isError ? describeChatError(mutation.error) : null
 

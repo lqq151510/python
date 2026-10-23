@@ -4,8 +4,8 @@ ComfyUI 在本机同一时刻只能跑一条 H3 任务（32 GiB 统一内存，�
 所以这里用一个守护线程串行消费 aigcjob 表里的 queued 任务，而不是开线程池。
 
 约定：
-- 只支持单进程部署（uvicorn --workers 1）。领任务用「带状态条件的 UPDATE」，
-  多进程时不会重复执行同一条，但仍会并行跑两条 ComfyUI 任务。
+- 只支持单进程部署（uvicorn --workers 1）。启动恢复前取得 PostgreSQL 会话锁，
+  第二个执行器拒绝启动；领任务另用「带状态条件的 UPDATE」避免双领。
 - 进程重启后：queued 保持原样，running 会被 recover_interrupted_jobs 放回队列。
 - 取消是协作式的：置 canceled 后，执行器在下一个轮询点调用 /interrupt 并落库。
 """
@@ -304,11 +304,12 @@ def ensure_runner_started() -> bool:
 
 
 def stop_runner() -> None:
+    """等待在途 HTTP 调用退出，避免旧线程未停止就释放执行器独占权。"""
     global _thread
     with _lock:
         _stop_event.set()
         if _thread is not None:
-            _thread.join(timeout=5)
+            _thread.join()
             _thread = None
 
 

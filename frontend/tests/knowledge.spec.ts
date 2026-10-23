@@ -326,6 +326,9 @@ test("chat sends document mode and displays retrieved sources", async ({
     expect(route.request().postDataJSON()).toEqual({
       message: "FastAPI",
       use_documents: true,
+      client_request_id: expect.stringMatching(
+        /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
+      ),
     })
     return route.fulfill({
       json: {
@@ -558,10 +561,20 @@ test("preserves document scope from search to retrieval and model request", asyn
     message: "FastAPI",
     use_documents: true,
     document_id: document.id,
+    client_request_id: expect.stringMatching(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
+    ),
   })
   await page.getByRole("checkbox", { name: /使用我的知识库回答/ }).uncheck()
   await page.getByRole("button", { name: "发送问题", exact: true }).click()
-  await expect.poll(() => modelBody).toEqual({ message: "FastAPI" })
+  await expect
+    .poll(() => modelBody)
+    .toEqual({
+      message: "FastAPI",
+      client_request_id: expect.stringMatching(
+        /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
+      ),
+    })
 })
 
 test("shows deleted preview errors and retries without exposing old fragments", async ({

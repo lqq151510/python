@@ -29,7 +29,7 @@ def _raise_api_error(request: Request, error: CodeAgentError) -> NoReturn:
 
 
 @router.get("/config")
-def code_model_config(current_user: CurrentUser):
+def code_model_config(_current_user: CurrentUser):
     """Return non-secret model connection status for the code workspace UI."""
     return get_model_config()
 

@@ -24,6 +24,10 @@ const handleApiError = (error: Error) => {
     error instanceof AxiosError &&
     [401, 403].includes(error.response?.status ?? 0)
   ) {
+    const currentToken = localStorage.getItem("access_token")
+    const requestAuthorization = error.config?.headers.get("Authorization")
+    if (!currentToken || requestAuthorization !== `Bearer ${currentToken}`)
+      return
     localStorage.removeItem("access_token")
     window.location.href = "/login"
   }

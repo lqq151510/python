@@ -70,7 +70,14 @@ export function CodeWorkspace() {
   const upload = useMutation({
     mutationFn: uploadCodeFiles,
     onSuccess: async (result, files) => {
-      await queryClient.invalidateQueries({ queryKey: ["code-workspace", user?.id] })
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["code-workspace", user?.id] }),
+        ...files.map((file) =>
+          queryClient.invalidateQueries({
+            queryKey: ["code-workspace-file", user?.id, file.name],
+          }),
+        ),
+      ])
       const newPaths = files.map((file) => file.name)
       setSelectedPaths((current) => Array.from(new Set([...current, ...newPaths])).slice(0, 20))
       setNotice(`已加入 ${files.length} 个文件，模型只会读取你勾选的附件。`)
@@ -90,8 +97,15 @@ export function CodeWorkspace() {
   })
   const apply = useMutation({
     mutationFn: applyCodeEdits,
-    onSuccess: async (result) => {
-      await queryClient.invalidateQueries({ queryKey: ["code-workspace", user?.id] })
+    onSuccess: async (result, input) => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["code-workspace", user?.id] }),
+        ...input.edits.map((edit) =>
+          queryClient.invalidateQueries({
+            queryKey: ["code-workspace-file", user?.id, edit.path],
+          }),
+        ),
+      ])
       setSelectedPaths((current) => Array.from(new Set([...current, ...result.files.map((file) => file.path)])).slice(0, 20))
       setNotice("已将审阅通过的改动写入当前账号的应用沙箱。")
       setErrorNotice("")

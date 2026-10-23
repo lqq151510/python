@@ -5,9 +5,11 @@ import json
 import logging
 import os
 import re
+import stat
 import tempfile
 import uuid
 from pathlib import Path, PurePosixPath
+from threading import Lock
 from typing import Literal
 from urllib.parse import quote
 
@@ -17,6 +19,8 @@ from pydantic import BaseModel, ConfigDict, Field, SecretStr
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
+# Serialize public workspace writers within this process; API workers need external locking.
+_workspace_write_lock = Lock()
 
 CodeApiFormat = Literal[
     "openai_chat_completions",
@@ -171,6 +175,13 @@ def list_workspace(owner_id: uuid.UUID) -> CodeWorkspacePublic:
 def store_workspace_uploads(
     owner_id: uuid.UUID, files: list[tuple[str, bytes]]
 ) -> CodeWorkspacePublic:
+    with _workspace_write_lock:
+        return _store_workspace_uploads(owner_id, files)
+
+
+def _store_workspace_uploads(
+    owner_id: uuid.UUID, files: list[tuple[str, bytes]]
+) -> CodeWorkspacePublic:
     if not files or len(files) > 10:
         raise CodeAgentError(422, "invalid_file_count", "一次最多上传 10 个代码或文本文档。")
     current = list_workspace(owner_id)
@@ -242,6 +253,11 @@ def _validate_edits(edits: list[CodeFileEdit]) -> list[CodeFileEdit]:
 
 
 def apply_workspace_edits(owner_id: uuid.UUID, edits: list[CodeFileEdit]) -> CodeWorkspacePublic:
+    with _workspace_write_lock:
+        return _apply_workspace_edits(owner_id, edits)
+
+
+def _apply_workspace_edits(owner_id: uuid.UUID, edits: list[CodeFileEdit]) -> CodeWorkspacePublic:
     normalized = _validate_edits(edits)
     current = list_workspace(owner_id)
     sizes = {item.path: item.size_bytes for item in current.files}
@@ -251,29 +267,63 @@ def apply_workspace_edits(owner_id: uuid.UUID, edits: list[CodeFileEdit]) -> Cod
     if new_total > MAX_WORKSPACE_BYTES or len(set(sizes) | {edit.path for edit in normalized}) > MAX_WORKSPACE_FILES:
         raise CodeAgentError(413, "workspace_limit", "写入后工作区将超过文件数量或总容量限制。")
 
-    staged: list[tuple[Path, Path]] = []
+    staged: list[tuple[Path, Path, Path | None]] = []
+    temporary_paths: set[Path] = set()
+    applied: list[tuple[Path, Path | None]] = []
     try:
         for edit in normalized:
             target = _target_path(owner_id, edit.path)
             target.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
             if not target.parent.resolve().is_relative_to(_owner_root(owner_id)):
                 raise CodeAgentError(422, "invalid_workspace_path", "工作区文件路径不合法。")
+            backup = None
+            if target.exists():
+                with tempfile.NamedTemporaryFile(
+                    mode="wb", prefix=f".{target.name}.rollback-", dir=target.parent, delete=False
+                ) as original:
+                    backup = Path(original.name)
+                    temporary_paths.add(backup)
+                    original.write(target.read_bytes())
+                os.chmod(backup, stat.S_IMODE(target.stat().st_mode))
             with tempfile.NamedTemporaryFile(
                 mode="w", encoding="utf-8", dir=target.parent, delete=False
             ) as temporary:
+                temporary_path = Path(temporary.name)
+                temporary_paths.add(temporary_path)
                 temporary.write(edit.content)
-                staged.append((Path(temporary.name), target))
-        for temporary, target in staged:
+            staged.append((temporary_path, target, backup))
+        for temporary, target, backup in staged:
             os.chmod(temporary, 0o600)
             os.replace(temporary, target)
-    except CodeAgentError:
-        for temporary, _ in staged:
-            temporary.unlink(missing_ok=True)
-        raise
-    except OSError:
-        for temporary, _ in staged:
-            temporary.unlink(missing_ok=True)
-        raise CodeAgentError(500, "workspace_write_failed", "无法将改动保存到隔离工作区。") from None
+            applied.append((target, backup))
+    except (CodeAgentError, OSError) as exc:
+        rollback_failed = False
+        for target, backup in reversed(applied):
+            try:
+                if backup is None:
+                    target.unlink(missing_ok=True)
+                else:
+                    os.replace(backup, target)
+            except OSError:
+                rollback_failed = True
+                # Keep any unrestored original for manual recovery.
+                if backup is not None:
+                    temporary_paths.discard(backup)
+                logger.error("workspace.rollback_failed", extra={"owner_id": str(owner_id)})
+        if rollback_failed:
+            raise CodeAgentError(
+                500, "workspace_rollback_failed", "保存失败且部分改动未能恢复，请检查工作区后再重试。"
+            ) from None
+        if isinstance(exc, CodeAgentError):
+            raise
+        raise CodeAgentError(500, "workspace_write_failed", "无法将改动保存到隔离工作区，已撤回本次写入。") from None
+    finally:
+        for temporary in temporary_paths:
+            try:
+                temporary.unlink(missing_ok=True)
+            except OSError:
+                logger.warning("workspace.temporary_cleanup_failed", extra={"owner_id": str(owner_id)})
+
     return list_workspace(owner_id)
 
 
@@ -441,14 +491,14 @@ async def _request_model(
     raise RuntimeError("unreachable")
 
 
-async def generate_code(
-    owner_id: uuid.UUID, body: CodeGenerateRequest, request_id: str
-) -> CodeGenerateResponse:
+def _read_workspace_context(
+    owner_id: uuid.UUID, paths: list[str]
+) -> list[tuple[str, str]]:
     workspace = list_workspace(owner_id)
     selected: list[tuple[str, str]] = []
     total_context = 0
     seen: set[str] = set()
-    for value in body.workspace_paths:
+    for value in paths:
         path = normalize_workspace_path(value)
         if path in seen:
             raise CodeAgentError(422, "duplicate_context_path", "读取文件列表中有重复路径。")
@@ -460,6 +510,14 @@ async def generate_code(
         if total_context > MAX_CONTEXT_BYTES:
             raise CodeAgentError(413, "code_context_too_large", "本次最多读取 64 KiB 文件内容，请减少勾选的附件。")
         selected.append((path, content))
+
+    return selected
+
+
+async def generate_code(
+    owner_id: uuid.UUID, body: CodeGenerateRequest, request_id: str
+) -> CodeGenerateResponse:
+    selected = await asyncio.to_thread(_read_workspace_context, owner_id, body.workspace_paths)
 
     system = (
         "你是 DevAssist 编程助手。使用简体中文回答。"
