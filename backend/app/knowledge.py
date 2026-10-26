@@ -21,6 +21,9 @@ MAX_CHUNKS_PER_DOCUMENT = 256
 RetrievalMethod = Literal["bm25", "vector", "hybrid"]
 CHUNK_CHARACTERS = 1000
 CHUNK_OVERLAP = 150
+# A moderate length penalty keeps precise evidence in long chunks competitive.
+BM25_K1 = 1.5
+BM25_B = 0.5
 
 
 class KnowledgeError(Exception):
@@ -200,8 +203,11 @@ def rank_chunks(
             score += (
                 inverse
                 * frequency
-                * 2.5
-                / (frequency + 1.5 * (0.25 + 0.75 * lengths[index] / average))
+                * (BM25_K1 + 1)
+                / (
+                    frequency
+                    + BM25_K1 * (1 - BM25_B + BM25_B * lengths[index] / average)
+                )
             )
         if score > 0:
             results.append((index, score))

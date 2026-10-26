@@ -134,7 +134,7 @@ class EvalReport(StrictModel):
     retrieval_code_sha256: str
     python_version: str
     chunk_count: int
-    parameters: dict[str, int]
+    parameters: dict[str, int | float]
     real_model_attempted: bool = False
     database_accessed: bool = False
     metrics: Metrics
@@ -298,6 +298,8 @@ def evaluate(examples_dir: Path, dataset_path: Path) -> EvalReport:
             "chunk_characters": knowledge.CHUNK_CHARACTERS,
             "chunk_overlap": knowledge.CHUNK_OVERLAP,
             "top_k": 5,
+            "bm25_k1": knowledge.BM25_K1,
+            "bm25_b": knowledge.BM25_B,
         },
         metrics=aggregate(results),
         cases=results,
@@ -335,6 +337,7 @@ def render_markdown(report: EvalReport) -> str:
         "",
         f"数据集：`{report.dataset_id}`；{len(report.corpus_sha256)} 份合成文档，{report.chunk_count} 个分块，{metrics.case_count} 个问题。",
         "离线复用应用的解析、分块和 BM25 排序函数；没有连接数据库、读取模型配置或调用模型。",
+        f"排序参数：BM25 k1={report.parameters.get('bm25_k1', '未记录')}，b={report.parameters.get('bm25_b', '未记录')}。",
         "",
         "## 指标与判定口径",
         "",

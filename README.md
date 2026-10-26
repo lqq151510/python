@@ -14,6 +14,10 @@ Milvus 提供应用向量检索，Chroma 用于同模型同资料的本地对照
 
 账号切换、代码写入回滚、向量分批和 AIGC 启动保护的当前实现与验证边界见
 [可靠性修复记录](docs/RELIABILITY_FIXES.md)。
+2026-10-23 的 BM25 排序优化、独立留出集结果和 Agent 页面状态修复见
+[本轮优化记录](docs/RAG_OPTIMIZATION.md)。
+2026-10-26 新增默认关闭的回答证据校验实验与独立评估工具；现有 1.5B 模型未通过资格验证，
+没有默认启用或宣称拒答提升，见 [资料不足与引用校验记录](docs/GROUNDED_ANSWERS.md)。
 
 聊天工作台现在分为 RAG 知识问答与编程智能体两种模式。RAG 保留 Markdown/TXT 知识库、关键词/语义/混合检索和来源片段，成功回答与完整引用按账号持久保存；每次生成仍按单轮请求处理，不自动把历史回答加入上下文。编程模式提供按账号隔离的应用沙箱、文件附件、Goal/Plan、候选改动预览与权限控制。独立 `/agent` 页面保留最近四轮上下文，只提供当前用户资料的只读检索工具，最多执行五步。
 
@@ -128,7 +132,9 @@ BM25 是本阶段的关键词检索基线，中文使用相邻双字片段分词
 
 示例文档位于 `examples/knowledge/`，检索评估用例位于 `examples/retrieval-eval.json`。详细范围、实测结果和学习练习见 [第二阶段说明](docs/PHASE2.md)。
 
-检索评估已升级为片段级：使用 5 份合成资料、30 个独立标注问题，按文件名、证据行号与原文引用共同判定。当前首条命中率为 72.7%，前五条平均证据召回率为 88.6%，8 个无答案问题中 4 个仍返回片段。不同表述和长文的失败样例完整保留；这是小型离线诊断集，不能作为真实模型或生产检索质量的结论。见 [最新评估报告](docs/RETRIEVAL_EVAL_REPORT.md) 和 [评估使用说明](docs/RETRIEVAL_EVAL.md)。
+检索评估已升级为片段级：使用 5 份合成资料、30 个独立标注问题，按文件名、证据行号与原文引用共同判定。2026-10-23 仅将 BM25 的长度归一化参数 `b` 从 0.75 调整为 0.5，`k1=1.5` 不变：既有诊断集严格通过 20/30 → 22/30，首条命中率 72.7% → 81.8%，前五条平均证据召回率 88.6% → 90.9%；8 个无答案问题中仍有 4 个返回片段。原语料、诊断标注和回归门槛均未改动。
+
+另以独立编写并冻结的 24 题留出集复验，新旧参数均严格通过 14/24：14 个有答案问题的首条、召回和 MRR 均为 100%，10 个无答案问题全部返回片段。当前只能确认已知诊断集的长文排序改善，没有泛化提升证据。过程、对照指标与复现命令见 [本轮优化记录](docs/RAG_OPTIMIZATION.md)，完整失败样例见 [留出集评估报告](docs/RETRIEVAL_HOLDOUT_REPORT.md)。当前完整诊断结果见 [最新诊断报告](docs/RETRIEVAL_EVAL_REPORT.md)，历史 20/30 汇总保留在 [评估使用说明](docs/RETRIEVAL_EVAL.md)。
 
 ## 验证
 
@@ -139,7 +145,10 @@ BM25 是本阶段的关键词检索基线，中文使用相邻双字片段分词
 真实本地模型问答、历史幂等和代码工作区，再清理本次临时资源。需要 Docker 已运行和现有
 `qwen2.5-1.5b-instruct:latest` 模型；可用 `--model` 指定已安装模型，或 `--skip-runtime`
 仅运行迁移和后端回归。该脚本不读取项目 `.env`、不自动下载、不改原数据库与数据卷。
-本次完整回归为 260 项通过、2 项跳过，运行时 23 项检查通过，详见
+2026-10-26 最新完整回归为 348 项通过、2 项跳过、1 条既有 Starlette/httpx 弃用警告，
+运行时 23 项检查通过，使用临时 PostgreSQL 与本机已有 Ollama 模型；这些运行检查与
+独立回答质量实验分开报告，详见 [资料不足与引用校验记录](docs/GROUNDED_ANSWERS.md)。
+2026-10-23 的 262 项验收保留在 [排序与页面优化记录](docs/RAG_OPTIMIZATION.md)，此前 260 项保留在
 [可靠性修复记录](docs/RELIABILITY_FIXES.md)。
 
 ```bash
@@ -155,12 +164,13 @@ uv run --frozen python scripts/evaluate-retrieval.py
 
 生成 `.local/retrieval-eval.json` 和 `docs/RETRIEVAL_EVAL_REPORT.md`。默认成功生成报告返回 0，即使检索样例存在失败；加 `--strict` 要求每个样例都满足首条正确、完整召回或无答案返回空结果，当前基线会返回 1。无效数据返回 2，区分评分结果与脚本故障。
 
-前端构建与独立聊天 UI 模拟测试：
+前端构建与独立知识库、Agent UI 模拟测试：
 
 ```bash
 cd frontend
 bun run build
 PLAYWRIGHT_BROWSER_CHANNEL=chrome bunx --no-install playwright test -c playwright.knowledge.config.ts
+PLAYWRIGHT_BROWSER_CHANNEL=chrome bunx --no-install playwright test -c playwright.agent.config.ts
 ```
 
 独立 UI 测试使用模拟接口，只证明页面行为。真实登录、PostgreSQL 联调与真实 DeepSeek 调用须单独验证；缺少密钥时不会把模拟答案计作真实模型成果。

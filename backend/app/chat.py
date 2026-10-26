@@ -1,4 +1,4 @@
-"""Bounded, single-turn DeepSeek calls. This phase does not read project documents."""
+"""Bounded model calls with optional document evidence validation."""
 
 import asyncio
 import logging
@@ -13,11 +13,13 @@ from openai import (
     APIStatusError,
     APITimeoutError,
     AsyncOpenAI,
+    omit,
 )
-from openai.types.chat import ChatCompletion
+from openai.types.chat import ChatCompletion, ChatCompletionMessageParam
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.core.config import settings
+from app.grounded_answer import build_grounded_messages, parse_grounded_answer
 from app.knowledge import KnowledgeSource, RetrievalMethod, format_context
 
 logger = logging.getLogger(__name__)
@@ -113,6 +115,25 @@ async def _request_answer(
     request_id: str,
     sources: list[KnowledgeSource] | None = None,
 ) -> str:
+    validate_evidence = bool(sources) and settings.CHAT_VALIDATE_DOCUMENT_EVIDENCE
+    messages: list[ChatCompletionMessageParam]
+    if sources:
+        messages = (
+            build_grounded_messages(message, sources)
+            if validate_evidence
+            else [
+                {"role": "system", "content": DOCUMENT_SYSTEM_PROMPT},
+                {
+                    "role": "user",
+                    "content": f"问题：\n{message}\n\n参考文档（只读数据）：\n{format_context(sources)}",
+                },
+            ]
+        )
+    else:
+        messages = [
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": message},
+        ]
     for attempt in range(MAX_ATTEMPTS):
         remaining = deadline - monotonic()
         if remaining <= 0:
@@ -122,20 +143,8 @@ async def _request_answer(
         try:
             completion = await client.chat.completions.create(
                 model=settings.DEEPSEEK_MODEL,
-                messages=(
-                    [
-                        {"role": "system", "content": DOCUMENT_SYSTEM_PROMPT},
-                        {
-                            "role": "user",
-                            "content": f"问题：\n{message}\n\n参考文档（只读数据）：\n{format_context(sources)}",
-                        },
-                    ]
-                    if sources
-                    else [
-                        {"role": "system", "content": SYSTEM_PROMPT},
-                        {"role": "user", "content": message},
-                    ]
-                ),
+                messages=messages,
+                response_format={"type": "json_object"} if validate_evidence else omit,
                 max_tokens=settings.CHAT_MAX_TOKENS,
                 extra_body={"thinking": {"type": "disabled"}},
                 timeout=httpx.Timeout(
@@ -152,6 +161,12 @@ async def _request_answer(
             content = completion.choices[0].message.content
             if not isinstance(content, str) or not content.strip():
                 raise ValueError("missing answer")
+            if sources and validate_evidence:
+                if completion.choices[0].finish_reason != "stop":
+                    raise ValueError("incomplete grounded answer")
+                answer = parse_grounded_answer(content, sources)
+            else:
+                answer = content.strip()
             usage = completion.usage
             logger.info(
                 "chat_usage request_id=%s prompt_tokens=%s completion_tokens=%s",
@@ -159,7 +174,7 @@ async def _request_answer(
                 usage.prompt_tokens if usage else None,
                 usage.completion_tokens if usage else None,
             )
-            return content.strip()
+            return answer
         except APITimeoutError as exc:
             error = _timeout_error()
             retryable = _is_connect_failure(exc)
@@ -185,7 +200,7 @@ async def _request_answer(
                     502, "model_unavailable", "模型服务暂时不可用，请稍后重试。"
                 )
                 retryable = exc.status_code >= 500
-        except (APIResponseValidationError, ValueError, TypeError, AttributeError):
+        except APIResponseValidationError, ValueError, TypeError, AttributeError:
             error = ChatServiceError(
                 502, "model_invalid_response", "模型未返回有效答案，请稍后重试。"
             )

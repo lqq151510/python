@@ -16,6 +16,7 @@ from sqlmodel import Session
 from app import chat
 from app.api.deps import get_current_user
 from app.core.config import Settings, settings
+from app.grounded_answer import INSUFFICIENT_EVIDENCE_ANSWER
 from app.main import app
 from app.models import User
 from tests.utils.user import create_random_user
@@ -58,6 +59,19 @@ def completion_response(answer: str = "模拟回答") -> dict[str, Any]:
         ],
         "usage": {"prompt_tokens": 10, "completion_tokens": 4, "total_tokens": 14},
     }
+
+
+def grounded_completion_response(answer: str, quote: str) -> dict[str, Any]:
+    return completion_response(
+        json.dumps(
+            {
+                "answerable": True,
+                "answer": answer,
+                "evidence": [{"citation": 1, "quote": quote}],
+            },
+            ensure_ascii=False,
+        )
+    )
 
 
 def mock_provider(
@@ -117,6 +131,7 @@ def test_success_payload_auth_and_sanitized_logs(
     assert payload["max_tokens"] == 1024
     assert payload["model"] == settings.DEEPSEEK_MODEL
     assert payload["thinking"] == {"type": "disabled"}
+    assert "response_format" not in payload
     assert client_args["max_retries"] == 0
     assert client_args["timeout"].connect == 5
     assert requests[0].extensions["timeout"]["read"] <= 30
@@ -406,14 +421,17 @@ def test_settings_enforce_budget_caps(field: str, value: int) -> None:
         Settings(**values)
 
 
+@pytest.mark.parametrize("answerable", [True, False])
 def test_chat_history_preserves_sources_is_idempotent_and_private(
     authenticated_client: TestClient,
     authenticated_user: User,
     db: Session,
     model_config: None,
     monkeypatch: pytest.MonkeyPatch,
+    answerable: bool,
 ) -> None:
     del model_config
+    monkeypatch.setattr(settings, "CHAT_VALIDATE_DOCUMENT_EVIDENCE", True)
     document = authenticated_client.post(
         f"{settings.API_V1_STR}/documents",
         files={
@@ -425,10 +443,29 @@ def test_chat_history_preserves_sources_is_idempotent_and_private(
     ).json()["document"]
     calls = 0
 
-    def respond(_request: httpx.Request) -> httpx.Response:
+    expected_answer = "回答依据 [S1]" if answerable else INSUFFICIENT_EVIDENCE_ANSWER
+
+    def respond(request: httpx.Request) -> httpx.Response:
         nonlocal calls
         calls += 1
-        return httpx.Response(200, json=completion_response("回答依据 [S1]"))
+        payload = json.loads(request.content)
+        assert payload["response_format"] == {"type": "json_object"}
+        result = (
+            grounded_completion_response(
+                "回答依据 [S1]", "每条历史记录只属于创建它的用户。"
+            )
+            if answerable
+            else completion_response(
+                json.dumps(
+                    {
+                        "answerable": False,
+                        "answer": "不得显示的模型事实",
+                        "evidence": [],
+                    }
+                )
+            )
+        )
+        return httpx.Response(200, json=result)
 
     mock_provider(monkeypatch, respond)
     body = {
@@ -439,6 +476,7 @@ def test_chat_history_preserves_sources_is_idempotent_and_private(
     }
     first = authenticated_client.post(CHAT_URL, json=body)
     assert first.status_code == 200
+    assert first.json()["answer"] == expected_answer
     assert first.json()["sources"][0]["citation"] == "S1"
 
     history = authenticated_client.get(f"{CHAT_URL}/history")
@@ -450,7 +488,7 @@ def test_chat_history_preserves_sources_is_idempotent_and_private(
 
     detail = authenticated_client.get(f"{CHAT_URL}/history/{summary['id']}")
     assert detail.status_code == 200
-    assert detail.json()["answer"] == "回答依据 [S1]"
+    assert detail.json()["answer"] == expected_answer
     assert detail.json()["sources"][0]["document_id"] == document["id"]
     assert detail.json()["sources"][0]["citation"] == "S1"
 
@@ -473,3 +511,76 @@ def test_chat_history_preserves_sources_is_idempotent_and_private(
         == 404
     )
     assert authenticated_user.id != other_user.id
+
+
+@pytest.mark.parametrize(
+    "content,finish_reason",
+    [
+        ("raw response [S1]", "stop"),
+        ('{"answerable":"false","answer":"","evidence":[]}', "stop"),
+        (
+            json.dumps(
+                {
+                    "answerable": True,
+                    "answer": "Unknown [S2]",
+                    "evidence": [{"citation": 1, "quote": "Known evidence."}],
+                }
+            ),
+            "stop",
+        ),
+        (
+            json.dumps(
+                {
+                    "answerable": True,
+                    "answer": "Invented [S1]",
+                    "evidence": [{"citation": 1, "quote": "Fabricated evidence."}],
+                }
+            ),
+            "stop",
+        ),
+        ('{"answerable":true', "length"),
+        (
+            json.dumps({"answerable": True, "answer": "No citation", "evidence": []}),
+            "stop",
+        ),
+    ],
+)
+def test_invalid_grounded_response_is_not_retried_or_persisted(
+    authenticated_client: TestClient,
+    model_config: None,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    content: str,
+    finish_reason: str,
+) -> None:
+    del model_config
+    monkeypatch.setattr(settings, "CHAT_VALIDATE_DOCUMENT_EVIDENCE", True)
+    document = authenticated_client.post(
+        f"{settings.API_V1_STR}/documents",
+        files={"file": ("guide.md", b"Known evidence.")},
+    ).json()["document"]
+    calls = 0
+
+    def respond(_request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        result = completion_response(content)
+        result["choices"][0]["finish_reason"] = finish_reason
+        return httpx.Response(200, json=result)
+
+    mock_provider(monkeypatch, respond)
+    with caplog.at_level(logging.INFO, logger="app"):
+        response = authenticated_client.post(
+            CHAT_URL,
+            json={
+                "message": "Known evidence",
+                "use_documents": True,
+                "document_id": document["id"],
+                "client_request_id": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+            },
+        )
+    assert_error(response, 502, "model_invalid_response")
+    assert calls == 1
+    assert authenticated_client.get(f"{CHAT_URL}/history").json()["count"] == 0
+    assert "Known evidence" not in caplog.text
+    assert content not in caplog.text

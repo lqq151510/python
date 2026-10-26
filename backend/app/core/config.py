@@ -14,7 +14,9 @@ from pydantic import (
 )
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-DEFAULT_CODE_WORKSPACE_DIR = Path(__file__).resolve().parents[2] / ".local" / "code-workspaces"
+DEFAULT_CODE_WORKSPACE_DIR = (
+    Path(__file__).resolve().parents[2] / ".local" / "code-workspaces"
+)
 DEFAULT_AIGC_OUTPUT_DIR = Path(__file__).resolve().parents[2] / ".local" / "aigc"
 DEFAULT_IMAGE_LIBRARY_DIR = (
     Path(__file__).resolve().parents[2] / ".local" / "image-library"
@@ -45,6 +47,7 @@ class Settings(BaseSettings):
     CHAT_TOTAL_TIMEOUT_SECONDS: float = Field(default=30, gt=0, le=30)
     CHAT_CONNECT_TIMEOUT_SECONDS: float = Field(default=5, gt=0, le=5)
     CHAT_MAX_TOKENS: int = Field(default=1024, gt=0, le=1024)
+    CHAT_VALIDATE_DOCUMENT_EVIDENCE: bool = False
 
     CODE_API_FORMAT: Literal[
         "openai_chat_completions",

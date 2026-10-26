@@ -22,6 +22,21 @@ from app.retrieval_eval import (
 ROOT = Path(__file__).resolve().parents[2]
 
 
+def test_holdout_annotations_are_valid_and_distinct_from_diagnostic_cases() -> None:
+    original, _, _ = load_dataset(
+        ROOT / "examples", ROOT / "examples/retrieval-eval.json"
+    )
+    holdout, chunks, _ = load_dataset(
+        ROOT / "examples", ROOT / "examples/retrieval-eval-holdout.json"
+    )
+    assert holdout.dataset_id != original.dataset_id
+    assert len(holdout.cases) == 24 and chunks
+    assert sum(bool(case.expected) for case in holdout.cases) >= 8
+    assert sum(not case.expected for case in holdout.cases) >= 8
+    original_queries = {case.query for case in original.cases}
+    assert not original_queries.intersection(case.query for case in holdout.cases)
+
+
 def gold(quote: str = "correct evidence", line: int = 2) -> Evidence:
     return Evidence(filename="notes.md", line_start=line, line_end=line, quote=quote)
 
@@ -285,6 +300,8 @@ def test_offline_cli_needs_no_env_network_or_database_and_is_reproducible(
         reports[0]["database_accessed"] is False
         and reports[0]["real_model_attempted"] is False
     )
+    assert reports[0]["parameters"]["bm25_k1"] == 1.5
+    assert reports[0]["parameters"]["bm25_b"] == 0.5
     strict, output = run_offline(tmp_path, 4, ["--strict"])
     assert strict.returncode == 1 and output.is_file()
     assert "严格验收未通过" in strict.stderr

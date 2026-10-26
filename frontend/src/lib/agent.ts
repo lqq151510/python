@@ -33,26 +33,31 @@ export interface AgentTurnResult {
   request_id: string
 }
 
-export async function listAgentSessions() {
+export async function listAgentSessions(signal?: AbortSignal) {
   const response = await client.get<
     { 200: { data: AgentSession[]; count: number } },
     unknown,
     true
   >({
     url: "/api/v1/agent/sessions",
+    signal,
     security: [...security],
     throwOnError: true,
   })
   return response.data
 }
 
-export async function readAgentSession(sessionId: string) {
+export async function readAgentSession(
+  sessionId: string,
+  signal?: AbortSignal,
+) {
   const response = await client.get<
     { 200: { session: AgentSession; turns: AgentTurn[] } },
     unknown,
     true
   >({
     url: `/api/v1/agent/sessions/${encodeURIComponent(sessionId)}`,
+    signal,
     security: [...security],
     throwOnError: true,
   })

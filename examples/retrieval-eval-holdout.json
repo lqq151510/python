@@ -1,0 +1,298 @@
+{
+  "schema_version": 2,
+  "dataset_id": "devassist-authored-notes-holdout-v1",
+  "description": "仅依据五份合成技术语料原文独立编写的留出标注；未读取既有问题、检索实现或排序结果，未用检索输出调整标注。问题覆盖事实、改写、精确技术标识、长文多证据和文档范围，无答案仅指给定语料或限定范围缺少所需依据。",
+  "corpus": [
+    "knowledge/async.md",
+    "knowledge/model-errors.md",
+    "knowledge/operations.md",
+    "retrieval-corpus/incident-runbook.md",
+    "retrieval-corpus/service-notes.md"
+  ],
+  "cases": [
+    {
+      "id": "H01",
+      "category": "paraphrase",
+      "query": "一个 FastAPI 进程正等模型的网络响应时，为什么还能接着处理别人的请求？这种方式会提高模型生成速度吗？",
+      "scope": null,
+      "expected": [
+        {
+          "filename": "async.md",
+          "line_start": 5,
+          "line_end": 7,
+          "quote": "FastAPI 的 async 接口通过 await 等待异步网络 I/O。\n等待时会把控制权交回事件循环，同一进程还能处理其他请求。\n异步不会让 DeepSeek 模型本身生成得更快。"
+        }
+      ]
+    },
+    {
+      "id": "H02",
+      "category": "direct",
+      "query": "async 接口里的阻塞 HTTP 调用、文件解析、数据库操作和长时间训练分别该怎样安排？",
+      "scope": null,
+      "expected": [
+        {
+          "filename": "async.md",
+          "line_start": 11,
+          "line_end": 12,
+          "quote": "不要在 async 接口中直接使用阻塞的 HTTP 客户端。\nblocking 文件解析和数据库操作应放在线程池，长时间训练应作为独立任务。"
+        }
+      ]
+    },
+    {
+      "id": "H03",
+      "category": "direct",
+      "query": "模型调用的 30 秒总预算具体包含哪些阶段？连接超时、SDK 自动重试以及应用重试次数各有什么限制？",
+      "scope": null,
+      "expected": [
+        {
+          "filename": "model-errors.md",
+          "line_start": 11,
+          "line_end": 14,
+          "quote": "模型操作总预算为 30 秒，包含请求、重试等待和客户端关闭。\n连接超时上限为 5 秒，SDK 自动重试关闭。\n应用最多重试一次，仅对连接建立失败、429 限流和 5xx 上游服务错误重试。\nretry 等待时间必须服从剩余预算。"
+        }
+      ]
+    },
+    {
+      "id": "H04",
+      "category": "paraphrase",
+      "query": "已经开始等模型返回内容后再超时，为什么不能再试一次？这种超时和认证失败分别向调用方返回什么状态？",
+      "scope": null,
+      "expected": [
+        {
+          "filename": "model-errors.md",
+          "line_start": 18,
+          "line_end": 19,
+          "quote": "读取超时不重试，因为上游可能已经接受并处理了请求。\n超时返回 504；认证失败返回 503；网络或异常响应返回 502。"
+        }
+      ]
+    },
+    {
+      "id": "H05",
+      "category": "scoped",
+      "query": "只依据 operations.md，数据库表结构由谁管理？回归结束后删的是哪个数据库，哪些数据还应保留？",
+      "scope": "operations.md",
+      "expected": [
+        {
+          "filename": "operations.md",
+          "line_start": 6,
+          "line_end": 8,
+          "quote": "数据库结构通过 Alembic 迁移管理，不依靠接口启动时临时创建表。\n回归测试在单独创建的临时数据库中执行，完成后移除该测试数据库。\n应用数据库和上传的文档保留。"
+        }
+      ]
+    },
+    {
+      "id": "H06",
+      "category": "paraphrase",
+      "query": "本机页面和 API 分别访问哪个完整地址？API 为什么明确绑定 IPv4，而不笼统地用本机 8000 端口？",
+      "scope": null,
+      "expected": [
+        {
+          "filename": "operations.md",
+          "line_start": 12,
+          "line_end": 13,
+          "quote": "前端地址为 http://localhost:5173，后端使用 http://127.0.0.1:8000。\nDocker 中其他服务可能使用 IPv6 的 8000 端口，因此后端明确使用 IPv4 地址。"
+        }
+      ]
+    },
+    {
+      "id": "H07",
+      "category": "direct",
+      "query": "后端的 OpenAPI JSON 描述和交互式接口文档各自是什么路径？",
+      "scope": null,
+      "expected": [
+        {
+          "filename": "operations.md",
+          "line_start": 14,
+          "line_end": 14,
+          "quote": "OpenAPI 描述在 /api/v1/openapi.json，接口文档在 /docs。"
+        }
+      ]
+    },
+    {
+      "id": "H08",
+      "category": "paraphrase",
+      "query": "同一个受保护接口返回 401 和 403 时，用户应该怎样理解？重新登录与重复发送请求分别能解决哪种情况？",
+      "scope": null,
+      "expected": [
+        {
+          "filename": "service-notes.md",
+          "line_start": 5,
+          "line_end": 6,
+          "quote": "受保护接口使用 Bearer Token。访问令牌过期时返回 401，用户需要重新登录。\n403 表示当前账号没有访问权限，重新发送同一请求不会获得额外权限。"
+        }
+      ]
+    },
+    {
+      "id": "H09",
+      "category": "direct",
+      "query": "工单列表 Redis 缓存的 TTL 和更新后的失效方式是什么？出现 cache_read_failed 时数据会从哪里获取？",
+      "scope": null,
+      "expected": [
+        {
+          "filename": "service-notes.md",
+          "line_start": 11,
+          "line_end": 12,
+          "quote": "工单列表缓存使用 Redis，TTL 固定为 60 秒。更新工单后删除对应缓存键。\n缓存读取失败时回退到 PostgreSQL 查询，并记录 cache_read_failed 错误码。"
+        }
+      ]
+    },
+    {
+      "id": "H10",
+      "category": "scoped",
+      "query": "仅根据 service-notes.md，同一轮排障跨多个接口如何关联日志？需要保留哪些字段、排除哪些敏感内容？",
+      "scope": "service-notes.md",
+      "expected": [
+        {
+          "filename": "service-notes.md",
+          "line_start": 17,
+          "line_end": 19,
+          "quote": "日志保留 request_id、接口路径、耗时和错误码。\nAuthorization 标头、访问令牌、用户提交的文档正文不得写入日志。\n多个接口的同一次排障使用 request_id 关联，不能根据用户姓名关联记录。"
+        }
+      ]
+    },
+    {
+      "id": "H11",
+      "category": "long_document",
+      "query": "长文演练里的连接池上限是多少？pool_wait 警报究竟代表什么，应该先检查什么，能否直接重建库或删卷？",
+      "scope": null,
+      "expected": [
+        {
+          "filename": "incident-runbook.md",
+          "line_start": 12,
+          "line_end": 12,
+          "quote": "08. 演练中的数据库连接池最多允许八个连接；连接耗尽时先核对请求是否释放连接，再观察等待时间。pool_wait 警报表示连接池等待超过三秒，不等同于数据库进程停止，不能直接据此重建数据库或删除数据卷。"
+        }
+      ]
+    },
+    {
+      "id": "H12",
+      "category": "long_document",
+      "query": "手册何时打上 latency_tail 标记？这个标记采用什么指标和阈值，能否把该阈值当成外部服务承诺或自动调整配置的依据？",
+      "scope": null,
+      "expected": [
+        {
+          "filename": "incident-runbook.md",
+          "line_start": 17,
+          "line_end": 17,
+          "quote": "13. 本演练用 P95 响应耗时评估尾部延迟；P95 超过一千二百毫秒时标记 latency_tail。它表示大部分请求较快但慢请求仍需关注。该阈值只属于演示验收，不是任何外部系统的服务承诺，也不能据此自动修改运行配置。"
+        }
+      ]
+    },
+    {
+      "id": "H13",
+      "category": "long_document",
+      "query": "演练中 GET /healthz 已经返回 status=ok，为什么仍不能宣布业务成功？涉及数据库写入时，还要怎样验收持久保存？",
+      "scope": null,
+      "expected": [
+        {
+          "filename": "incident-runbook.md",
+          "line_start": 6,
+          "line_end": 6,
+          "quote": "02. 健康检查调用 GET /healthz。正常响应包含 status=ok 和服务版本；健康接口只说明进程及依赖检查结果，不能替代实际业务请求成功。遇到失败时记录响应状态与耗时，再核对服务是否仍在运行。"
+        },
+        {
+          "filename": "incident-runbook.md",
+          "line_start": 11,
+          "line_end": 11,
+          "quote": "07. 观察数据库查询时区分连接建立、语句执行和事务提交。一次读操作成功不能证明写操作已经持久保存。需要写入的验收应使用专属合成数据，并在刷新后重新读取，核对返回内容和标识都与本次写入一致。"
+        }
+      ]
+    },
+    {
+      "id": "H14",
+      "category": "scoped",
+      "query": "限定 incident-runbook.md：要让同学复现并比较修改前后的现象，开始时应留存哪些资料，比较时应保持哪些条件一致，回滚后又如何验收并保护无关改动？",
+      "scope": "incident-runbook.md",
+      "expected": [
+        {
+          "filename": "incident-runbook.md",
+          "line_start": 5,
+          "line_end": 5,
+          "quote": "01. 演练开始前登记本次请求的编号，确认使用的是隔离的演示服务。记录当前代码版本、启动方式、资料版本和复现步骤，确保其他同学能按相同顺序重现现象。排障过程先收集证据，修改参数前保留原始记录。"
+        },
+        {
+          "filename": "incident-runbook.md",
+          "line_start": 8,
+          "line_end": 8,
+          "quote": "04. 对每次现象分别记录起始时间、结束时间和等待阶段。客户端等待连接、等待响应及处理响应属于不同阶段，不能根据总耗时直接推断慢点。后续比较需要采用相同的问题、相同的文档范围和相同的环境。"
+        },
+        {
+          "filename": "incident-runbook.md",
+          "line_start": 19,
+          "line_end": 19,
+          "quote": "15. 回滚演练必须指定本次修改的文件与配置项，保留无关改动。先比较修改前副本与当前内容，再逐项恢复必要部分，最后重新执行相同验收。不能用全工作区恢复替代范围核对，也不能删除其他项目的进程或数据。"
+        }
+      ]
+    },
+    {
+      "id": "H15",
+      "category": "negative",
+      "query": "只查 async.md：项目从哪个配置文件读取 DEEPSEEK_API_KEY，密钥为空时返回什么状态码？",
+      "scope": "async.md",
+      "expected": []
+    },
+    {
+      "id": "H16",
+      "category": "negative",
+      "query": "仅使用 service-notes.md，给出本地后端绑定的完整 IPv4 URL，并解释选择该地址与 Docker 的关系。",
+      "scope": "service-notes.md",
+      "expected": []
+    },
+    {
+      "id": "H17",
+      "category": "negative",
+      "query": "访问令牌过期后，刷新令牌接口的 URL、HTTP 方法、请求体字段以及新令牌有效时长分别是什么？",
+      "scope": null,
+      "expected": []
+    },
+    {
+      "id": "H18",
+      "category": "negative",
+      "query": "怎样给演示服务的 Redis 连接启用 TLS？请列出证书文件位置、客户端配置参数和可执行的验证命令。",
+      "scope": null,
+      "expected": []
+    },
+    {
+      "id": "H19",
+      "category": "negative",
+      "query": "缓存键失效后，如何用 Redis 命令批量清理所有工单列表缓存？请给出实际键名前缀、扫描与删除命令。",
+      "scope": null,
+      "expected": []
+    },
+    {
+      "id": "H20",
+      "category": "negative",
+      "query": "Alembic 迁移出现多个 head 时，这个项目指定的合并 revision 命令和失败后的 downgrade 目标版本是什么？",
+      "scope": null,
+      "expected": []
+    },
+    {
+      "id": "H21",
+      "category": "negative",
+      "query": "模型请求遇到 429 后，重试退避的初始等待毫秒数、增长系数和随机抖动范围各是多少？",
+      "scope": null,
+      "expected": []
+    },
+    {
+      "id": "H22",
+      "category": "negative",
+      "query": "出现 pool_wait 后，如果确认需要扩容连接池，应该修改哪个环境变量、调整到多少个连接，并执行哪条热更新命令？",
+      "scope": null,
+      "expected": []
+    },
+    {
+      "id": "H23",
+      "category": "negative",
+      "query": "latency_tail 触发时，自动扩容应使用什么 Kubernetes HPA 配置？请给出最小和最大副本数以及缩容稳定窗口。",
+      "scope": null,
+      "expected": []
+    },
+    {
+      "id": "H24",
+      "category": "negative",
+      "query": "脱敏日志在本地保留多少天，单文件达到多大时轮转，具体通过哪个配置键设置归档和清理任务？",
+      "scope": null,
+      "expected": []
+    }
+  ]
+}

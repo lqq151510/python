@@ -25,13 +25,15 @@ function AgentPage() {
   const [inputError, setInputError] = useState("")
   const sessions = useQuery({
     queryKey: ["agent-sessions", user?.id],
-    queryFn: listAgentSessions,
+    queryFn: ({ signal }) => listAgentSessions(signal),
     enabled: Boolean(user),
+    retry: false,
   })
   const detail = useQuery({
     queryKey: ["agent-session", user?.id, sessionId],
-    queryFn: () => readAgentSession(sessionId as string),
+    queryFn: ({ signal }) => readAgentSession(sessionId as string, signal),
     enabled: Boolean(user && sessionId),
+    retry: false,
   })
   const send = useMutation({
     mutationFn: (input: { message: string; sessionId?: string }) =>
@@ -51,6 +53,7 @@ function AgentPage() {
 
   async function handleSend(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
+    if (send.isPending || (sessionId && !detail.isSuccess)) return
     setInputError("")
     const trimmed = message.trim()
     if (!trimmed || Array.from(trimmed).length > 4000) {
@@ -67,7 +70,8 @@ function AgentPage() {
     }
   }
 
-  const turns = detail.data?.turns ?? []
+  const turns = detail.isSuccess ? detail.data.turns : []
+  const canSend = !send.isPending && (!sessionId || detail.isSuccess)
   return (
     <>
       <DevAssistHeader
@@ -86,6 +90,7 @@ function AgentPage() {
               <button
                 type="button"
                 className="da-secondary"
+                disabled={send.isPending}
                 onClick={() => {
                   setSessionId(null)
                   send.reset()
@@ -95,29 +100,71 @@ function AgentPage() {
                 新会话
               </button>
             </div>
-            {sessions.data?.data.length === 0 && (
+            {sessions.isPending && (
+              <p role="status" className="da-note">
+                正在加载会话…
+              </p>
+            )}
+            {sessions.isError && (
+              <div role="alert" className="da-inline-error">
+                <p>会话列表加载失败。{describeAgentError(sessions.error)}</p>
+                <button
+                  type="button"
+                  className="da-secondary"
+                  disabled={sessions.isFetching}
+                  onClick={() => sessions.refetch()}
+                >
+                  重试加载会话
+                </button>
+              </div>
+            )}
+            {sessions.isSuccess && sessions.data.data.length === 0 && (
               <div className="da-library-empty">
                 <Bot size={28} aria-hidden="true" />
                 <p>还没有会话。提一个问题就会开始。</p>
               </div>
             )}
             <div className="da-document-list">
-              {sessions.data?.data.map((session) => (
-                <button
-                  key={session.id}
-                  type="button"
-                  className="da-document-row"
-                  aria-current={session.id === sessionId ? "true" : undefined}
-                  onClick={() => setSessionId(session.id)}
-                >
-                  <strong>{session.title}</strong>
-                  <small>{session.turn_count} 轮</small>
-                </button>
-              ))}
+              {sessions.isSuccess &&
+                sessions.data.data.map((session) => (
+                  <button
+                    key={session.id}
+                    type="button"
+                    className="da-document-row"
+                    disabled={send.isPending}
+                    aria-current={session.id === sessionId ? "true" : undefined}
+                    onClick={() => {
+                      setSessionId(session.id)
+                      send.reset()
+                      setInputError("")
+                    }}
+                  >
+                    <strong>{session.title}</strong>
+                    <small>{session.turn_count} 轮</small>
+                  </button>
+                ))}
             </div>
           </section>
           <section aria-label="当前对话" className="da-search-results">
-            {turns.length === 0 && (
+            {sessionId && detail.isPending && (
+              <p role="status" className="da-note">
+                正在加载对话…
+              </p>
+            )}
+            {sessionId && detail.isError && (
+              <div role="alert" className="da-inline-error">
+                <p>对话加载失败。{describeAgentError(detail.error)}</p>
+                <button
+                  type="button"
+                  className="da-secondary"
+                  disabled={detail.isFetching}
+                  onClick={() => detail.refetch()}
+                >
+                  重试加载对话
+                </button>
+              </div>
+            )}
+            {(!sessionId || detail.isSuccess) && turns.length === 0 && (
               <p className="da-note">从下面输入第一轮问题。</p>
             )}
             {turns.map((turn) => (
@@ -149,7 +196,7 @@ function AgentPage() {
                 id="agent-message"
                 value={message}
                 rows={4}
-                disabled={send.isPending}
+                disabled={!canSend}
                 onChange={(event) => setMessage(event.target.value)}
                 placeholder="例如：刚才那个文件里，超时是怎么处理的？"
               />
@@ -166,6 +213,7 @@ function AgentPage() {
               <LoadingButton
                 className="da-primary"
                 type="submit"
+                disabled={!canSend}
                 loading={send.isPending}
               >
                 <Send aria-hidden="true" />

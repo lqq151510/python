@@ -82,3 +82,13 @@ def test_bm25_relevance_casefolding_chinese_and_no_hit() -> None:
 def test_long_irrelevant_text_does_not_dominate_a_precise_match() -> None:
     ranked = rank_chunks("timeout", ["timeout retry", "timeout " + "unrelated " * 1000])
     assert [index for index, _ in ranked] == [0, 1]
+
+
+def test_long_chunk_covering_both_identifiers_outranks_a_short_partial_match() -> None:
+    documents = [
+        "quota_bucket quota_bucket",
+        "quota_bucket owner_scope quota_bucket owner_scope " + "reference " * 100,
+        "owner_scope",
+    ]
+    ranked = rank_chunks("quota_bucket owner_scope", documents)
+    assert ranked[0][0] == 1
