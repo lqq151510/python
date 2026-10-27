@@ -277,3 +277,43 @@ class AgentTurn(SQLModel, table=True):
     created_at: datetime = Field(
         default_factory=get_datetime_utc, sa_type=DateTime(timezone=True)
     )
+
+
+class NoteBase(SQLModel):
+    title: str = Field(min_length=1, max_length=80)
+    body: str = Field(min_length=1, max_length=4000)
+
+
+class NoteCreate(NoteBase):
+    pass
+
+
+class NoteUpdate(SQLModel):
+    title: str | None = Field(default=None, min_length=1, max_length=80)
+    body: str | None = Field(default=None, min_length=1, max_length=4000)
+
+
+class Note(NoteBase, table=True):
+    """登录用户自己的学习笔记，不和其他账号共享。"""
+
+    __table_args__ = (Index("ix_note_owner_updated_at", "owner_id", "updated_at"),)
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    owner_id: uuid.UUID = Field(foreign_key="user.id", ondelete="CASCADE", index=True)
+    created_at: datetime = Field(
+        default_factory=get_datetime_utc, sa_type=DateTime(timezone=True)
+    )
+    updated_at: datetime = Field(
+        default_factory=get_datetime_utc, sa_type=DateTime(timezone=True)
+    )
+
+
+class NotePublic(NoteBase):
+    id: uuid.UUID
+    created_at: datetime
+    updated_at: datetime
+
+
+class NotesPublic(SQLModel):
+    data: list[NotePublic]
+    count: int

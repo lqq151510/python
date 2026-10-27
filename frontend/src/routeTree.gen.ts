@@ -23,6 +23,7 @@ import { Route as LayoutImagesRouteImport } from './routes/_layout/images'
 import { Route as LayoutItemsRouteImport } from './routes/_layout/items'
 import { Route as LayoutKnowledgeRouteImport } from './routes/_layout/knowledge'
 import { Route as LayoutLearningRouteImport } from './routes/_layout/learning'
+import { Route as LayoutNotesRouteImport } from './routes/_layout/notes'
 import { Route as LayoutSettingsRouteImport } from './routes/_layout/settings'
 
 const LayoutRoute = LayoutRouteImport.update({
@@ -94,6 +95,11 @@ const LayoutLearningRoute = LayoutLearningRouteImport.update({
   path: '/learning',
   getParentRoute: () => LayoutRoute,
 } as any)
+const LayoutNotesRoute = LayoutNotesRouteImport.update({
+  id: '/notes',
+  path: '/notes',
+  getParentRoute: () => LayoutRoute,
+} as any)
 const LayoutSettingsRoute = LayoutSettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
@@ -114,6 +120,7 @@ export interface FileRoutesByFullPath {
   '/items': typeof LayoutItemsRoute
   '/knowledge': typeof LayoutKnowledgeRoute
   '/learning': typeof LayoutLearningRoute
+  '/notes': typeof LayoutNotesRoute
   '/settings': typeof LayoutSettingsRoute
 }
 export interface FileRoutesByTo {
@@ -129,6 +136,7 @@ export interface FileRoutesByTo {
   '/items': typeof LayoutItemsRoute
   '/knowledge': typeof LayoutKnowledgeRoute
   '/learning': typeof LayoutLearningRoute
+  '/notes': typeof LayoutNotesRoute
   '/settings': typeof LayoutSettingsRoute
   '/': typeof LayoutIndexRoute
 }
@@ -147,6 +155,7 @@ export interface FileRoutesById {
   '/_layout/items': typeof LayoutItemsRoute
   '/_layout/knowledge': typeof LayoutKnowledgeRoute
   '/_layout/learning': typeof LayoutLearningRoute
+  '/_layout/notes': typeof LayoutNotesRoute
   '/_layout/settings': typeof LayoutSettingsRoute
   '/_layout/': typeof LayoutIndexRoute
 }
@@ -166,6 +175,7 @@ export interface FileRouteTypes {
     | '/items'
     | '/knowledge'
     | '/learning'
+    | '/notes'
     | '/settings'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -181,6 +191,7 @@ export interface FileRouteTypes {
     | '/items'
     | '/knowledge'
     | '/learning'
+    | '/notes'
     | '/settings'
     | '/'
   id:
@@ -198,6 +209,7 @@ export interface FileRouteTypes {
     | '/_layout/items'
     | '/_layout/knowledge'
     | '/_layout/learning'
+    | '/_layout/notes'
     | '/_layout/settings'
     | '/_layout/'
   fileRoutesById: FileRoutesById
@@ -310,6 +322,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof LayoutLearningRouteImport
       parentRoute: typeof LayoutRoute
     }
+    '/_layout/notes': {
+      id: '/_layout/notes'
+      path: '/notes'
+      fullPath: '/notes'
+      preLoaderRoute: typeof LayoutNotesRouteImport
+      parentRoute: typeof LayoutRoute
+    }
     '/_layout/settings': {
       id: '/_layout/settings'
       path: '/settings'
@@ -329,6 +348,7 @@ interface LayoutRouteChildren {
   LayoutItemsRoute: typeof LayoutItemsRoute
   LayoutKnowledgeRoute: typeof LayoutKnowledgeRoute
   LayoutLearningRoute: typeof LayoutLearningRoute
+  LayoutNotesRoute: typeof LayoutNotesRoute
   LayoutSettingsRoute: typeof LayoutSettingsRoute
   LayoutIndexRoute: typeof LayoutIndexRoute
 }
@@ -342,6 +362,7 @@ const LayoutRouteChildren: LayoutRouteChildren = {
   LayoutItemsRoute: LayoutItemsRoute,
   LayoutKnowledgeRoute: LayoutKnowledgeRoute,
   LayoutLearningRoute: LayoutLearningRoute,
+  LayoutNotesRoute: LayoutNotesRoute,
   LayoutSettingsRoute: LayoutSettingsRoute,
   LayoutIndexRoute: LayoutIndexRoute,
 }
