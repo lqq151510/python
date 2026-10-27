@@ -26,6 +26,7 @@ cloud_agent_start_docker() {
   if ! docker info >/dev/null 2>&1 && ! sudo docker info >/dev/null 2>&1; then
     if command -v dockerd >/dev/null 2>&1 || sudo bash -lc 'command -v dockerd' >/dev/null 2>&1; then
       echo "cloud-agent: starting dockerd directly"
+      sudo rm -f /var/run/docker.pid /var/run/docker.sock
       sudo dockerd >>/tmp/cloud-agent-docker.log 2>&1 &
     else
       echo "cloud-agent: dockerd is not installed" >>/tmp/cloud-agent-docker.log
@@ -71,11 +72,17 @@ cloud_agent_stop_docker() {
   local attempt
   for attempt in $(seq 1 20); do
     if ! sudo docker info >/dev/null 2>&1; then
+      sudo rm -f /var/run/docker.pid /var/run/docker.sock
       return 0
     fi
     sleep 1
   done
   return 1
+}
+
+cloud_agent_db_image_present() {
+  sudo docker image inspect postgres:16-alpine >/dev/null 2>&1 \
+    || docker image inspect postgres:16-alpine >/dev/null 2>&1
 }
 
 cloud_agent_docker_log_tail() {

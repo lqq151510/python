@@ -4,12 +4,12 @@
   "terminals": [
     {
       "name": "backend",
-      "command": "cd backend && exec uv run --frozen uvicorn app.main:app --host 0.0.0.0 --port 8000",
+      "command": "bash scripts/cloud-agent-wait.sh && cd backend && exec uv run --frozen uvicorn app.main:app --host 0.0.0.0 --port 8000",
       "description": "FastAPI"
     },
     {
       "name": "frontend",
-      "command": "cd frontend && exec bun run dev -- --host 0.0.0.0 --port 5173 --strictPort",
+      "command": "bash scripts/cloud-agent-wait.sh && cd frontend && exec bun run dev -- --host 0.0.0.0 --port 5173 --strictPort",
       "description": "Vite"
     }
   ],
