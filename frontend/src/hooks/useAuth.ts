@@ -15,14 +15,20 @@ const isLoggedIn = () => {
   return localStorage.getItem("access_token") !== null
 }
 
+const currentUserQuery = {
+  queryKey: ["currentUser"],
+  queryFn: async ({ signal }: { signal: AbortSignal }) =>
+    (await UsersService.readUserMe({ signal })).data,
+}
+
 const useAuth = () => {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const { showErrorToast } = useCustomToast()
+  const sessionToken = localStorage.getItem("access_token")
 
   const { data: user } = useQuery<UserPublic | null, Error>({
-    queryKey: ["currentUser"],
-    queryFn: async () => (await UsersService.readUserMe()).data,
+    ...currentUserQuery,
     enabled: isLoggedIn(),
   })
 
@@ -42,7 +48,17 @@ const useAuth = () => {
     const response = await LoginService.loginAccessToken({
       body: data,
     })
+    await queryClient.cancelQueries()
+    queryClient.clear()
     localStorage.setItem("access_token", response.data.access_token)
+    try {
+      // Resolve the new identity before mounting any account-scoped pages.
+      await queryClient.fetchQuery(currentUserQuery)
+    } catch (error) {
+      localStorage.removeItem("access_token")
+      queryClient.clear()
+      throw error
+    }
   }
 
   const loginMutation = useMutation({
@@ -53,16 +69,22 @@ const useAuth = () => {
     onError: handleError.bind(showErrorToast),
   })
 
-  const logout = () => {
+  const logout = async () => {
+    // A completed mutation from an older account must not log out a new session.
+    if (localStorage.getItem("access_token") !== sessionToken) return
     localStorage.removeItem("access_token")
-    navigate({ to: "/login" })
+    // Cancel before clearing so late responses cannot repopulate the next session.
+    await queryClient.cancelQueries()
+    if (localStorage.getItem("access_token") !== null) return
+    queryClient.clear()
+    await navigate({ to: "/login" })
   }
 
   return {
     signUpMutation,
     loginMutation,
     logout,
-    user,
+    user: isLoggedIn() ? user : null,
   }
 }
 

@@ -11,6 +11,7 @@ github-actions = [
 
 [tool.uv.workspace]
 members = ["backend"]
+exclude = ["services/zebao-rag"]
 
 [tool.typos.files]
 extend-exclude = [

@@ -1,4 +1,4 @@
-import { Briefcase, Home, Users } from "lucide-react"
+import { BookOpen, Briefcase, Home, MessageSquare, Users } from "lucide-react"
 
 import { SidebarAppearance } from "@/components/Common/Appearance"
 import { Logo } from "@/components/Common/Logo"
@@ -14,6 +14,9 @@ import { User } from "./User"
 
 const baseItems: Item[] = [
   { icon: Home, title: "Dashboard", path: "/" },
+  { icon: MessageSquare, title: "AI 问答", path: "/chat" },
+  { icon: BookOpen, title: "文档知识库", path: "/knowledge" },
+  { icon: BookOpen, title: "学习实验", path: "/learning" },
   { icon: Briefcase, title: "Items", path: "/items" },
 ]
 

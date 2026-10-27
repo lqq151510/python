@@ -1,0 +1,120 @@
+{
+  "schema_version": 1,
+  "dataset_id": "zh-fictional-answerability-v1",
+  "description": "仅依据指定资料回答或说明资料不足的中文评估集。三份技术说明均为独立原创的虚构教学资料；每份文档包含两道有答案题和两道无答案题。标注只依据本文语料，不依赖外部知识或模型输出。",
+  "documents": [
+    {
+      "id": "fictional_image_queue",
+      "filename": "fictional-image-queue.txt",
+      "text": "【虚构技术说明】萤石图片处理队列\n本说明描述教学演示系统“萤石画坊”的图片处理队列，全部名称和配置均为虚构。\n用户提交一张图片和一个处理模板后，系统生成一个处理任务。\n任务接收后进入待处理状态，并按照提交时间从早到晚开始执行。\n每个工作进程同时处理一个任务。\n排队中的任务可以取消；已经开始执行的任务不接受取消。\n单次处理超过四十秒时，任务变为超时状态。\n超时任务不会自动重试，用户可以在结果页重新提交。\n处理成功后，结果页显示预览图和下载按钮。\n处理失败时，结果页展示失败原因与原任务编号。\n任务列表每五秒刷新一次。\n演示环境会在每天凌晨三点清理七天前的任务记录。"
+    },
+    {
+      "id": "fictional_sensor_import",
+      "filename": "fictional-sensor-import.txt",
+      "text": "【虚构技术说明】青苔传感器数据导入\n本说明描述教学演示系统“青苔观测站”的数据导入功能，全部名称和配置均为虚构。\n操作员在导入页面选择一个 CSV 文件，并填写本次导入的备注。\n文件必须使用 UTF-8 编码，第一行必须包含 device_id、recorded_at 和 temperature 三个列名。\nrecorded_at 使用带时区的日期时间字符串，temperature 使用摄氏度数值。\n系统先逐行校验文件，通过校验后才显示导入预览。\n如果任意一行缺少必填字段，整份文件不会写入数据库，页面会列出出错行号。\n操作员在预览页点击确认后，系统把有效数据写入观测记录表。\n同一设备在同一采集时间的记录视为重复，重复行会跳过并计入导入报告。\n导入报告分别显示写入行数、跳过行数和处理时间。\n导入成功后，操作员可以下载本次导入报告。\n导入记录列表按完成时间从新到旧排列。"
+    },
+    {
+      "id": "fictional_task_cache",
+      "filename": "fictional-task-cache.txt",
+      "text": "【虚构技术说明】纸鸢任务结果缓存\n本说明描述教学演示系统“纸鸢报表间”的任务结果缓存，全部名称和配置均为虚构。\n用户提交报表任务时，系统先检查是否存在可复用的结果。\n只有用户编号、报表模板编号和筛选条件全部相同时，才会复用已有缓存。\n筛选条件中的字段排列顺序不会影响缓存匹配。\n每份缓存从报表生成成功时开始保留十五分钟。\n缓存到期后，下一次相同请求会重新生成报表。\n生成失败的任务不会写入缓存。\n用户修改报表模板并保存后，该模板对应的已有缓存立即失效。\n缓存命中时，结果页仍显示原报表的生成时间。\n用户可以在结果页点击重新生成，跳过当前缓存并创建新任务。\n新任务完成后，结果页展示新报表及其生成时间。"
+    }
+  ],
+  "cases": [
+    {
+      "id": "image_01",
+      "document_id": "fictional_image_queue",
+      "question": "在萤石画坊中，哪些处理任务可以取消，哪些任务不接受取消？",
+      "answerable": true,
+      "evidence_quotes": [
+        "排队中的任务可以取消；已经开始执行的任务不接受取消。"
+      ]
+    },
+    {
+      "id": "image_02",
+      "document_id": "fictional_image_queue",
+      "question": "萤石画坊单次图片处理超过多久会超时，超时后是否自动重试？",
+      "answerable": true,
+      "evidence_quotes": [
+        "单次处理超过四十秒时，任务变为超时状态。\n超时任务不会自动重试，用户可以在结果页重新提交。"
+      ]
+    },
+    {
+      "id": "image_03",
+      "document_id": "fictional_image_queue",
+      "question": "萤石画坊允许上传的单张图片最大是多少兆字节？",
+      "answerable": false,
+      "evidence_quotes": []
+    },
+    {
+      "id": "image_04",
+      "document_id": "fictional_image_queue",
+      "question": "萤石画坊演示环境一共部署了多少个工作进程？",
+      "answerable": false,
+      "evidence_quotes": []
+    },
+    {
+      "id": "sensor_01",
+      "document_id": "fictional_sensor_import",
+      "question": "青苔观测站导入的 CSV 文件必须使用什么编码，第一行必须包含哪三个列名？",
+      "answerable": true,
+      "evidence_quotes": [
+        "文件必须使用 UTF-8 编码，第一行必须包含 device_id、recorded_at 和 temperature 三个列名。"
+      ]
+    },
+    {
+      "id": "sensor_02",
+      "document_id": "fictional_sensor_import",
+      "question": "青苔观测站如何判定重复记录，又如何处理导入文件中的重复行？",
+      "answerable": true,
+      "evidence_quotes": [
+        "同一设备在同一采集时间的记录视为重复，重复行会跳过并计入导入报告。"
+      ]
+    },
+    {
+      "id": "sensor_03",
+      "document_id": "fictional_sensor_import",
+      "question": "青苔观测站允许导入的温度数值下限和上限分别是多少摄氏度？",
+      "answerable": false,
+      "evidence_quotes": []
+    },
+    {
+      "id": "sensor_04",
+      "document_id": "fictional_sensor_import",
+      "question": "青苔观测站的导入报告可以保留多少天供操作员下载？",
+      "answerable": false,
+      "evidence_quotes": []
+    },
+    {
+      "id": "cache_01",
+      "document_id": "fictional_task_cache",
+      "question": "纸鸢报表间复用已有缓存时，要求哪三项内容全部相同？",
+      "answerable": true,
+      "evidence_quotes": [
+        "只有用户编号、报表模板编号和筛选条件全部相同时，才会复用已有缓存。"
+      ]
+    },
+    {
+      "id": "cache_02",
+      "document_id": "fictional_task_cache",
+      "question": "纸鸢报表间的每份缓存从什么时候开始计时，保留多长时间？",
+      "answerable": true,
+      "evidence_quotes": [
+        "每份缓存从报表生成成功时开始保留十五分钟。"
+      ]
+    },
+    {
+      "id": "cache_03",
+      "document_id": "fictional_task_cache",
+      "question": "纸鸢报表间使用哪个品牌和版本的缓存数据库保存报表结果？",
+      "answerable": false,
+      "evidence_quotes": []
+    },
+    {
+      "id": "cache_04",
+      "document_id": "fictional_task_cache",
+      "question": "纸鸢报表间允许同一用户同时保留的缓存最多有多少份？",
+      "answerable": false,
+      "evidence_quotes": []
+    }
+  ]
+}
