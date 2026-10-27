@@ -1,32 +1,22 @@
 #!/usr/bin/env bash
-# 供安装和启动脚本 source。成功时设置 DOCKER 数组。
+# 供安装和启动脚本 source。
 
 cloud_agent_install_docker() {
   if command -v dockerd >/dev/null 2>&1 || sudo bash -lc 'command -v dockerd' >/dev/null 2>&1; then
     return 0
   fi
   echo "cloud-agent: installing docker.io"
-  if ! sudo apt-get update || ! sudo apt-get install -y docker.io fuse-overlayfs iptables; then
+  sudo DEBIAN_FRONTEND=noninteractive apt-get update || true
+  if ! sudo DEBIAN_FRONTEND=noninteractive apt-get install -y docker.io; then
     echo "cloud-agent: docker.io install failed"
-    return 0
   fi
-  if [[ ! -f /etc/docker/daemon.json ]]; then
-    sudo mkdir -p /etc/docker
-    printf '%s\n' '{' '  "storage-driver": "fuse-overlayfs"' '}' | sudo tee /etc/docker/daemon.json >/dev/null
-  fi
-  if [[ -x /usr/sbin/iptables-legacy ]]; then
-    sudo update-alternatives --set iptables /usr/sbin/iptables-legacy || true
-    sudo update-alternatives --set ip6tables /usr/sbin/ip6tables-legacy || true
+  if ! sudo DEBIAN_FRONTEND=noninteractive apt-get install -y docker-compose-v2; then
+    sudo DEBIAN_FRONTEND=noninteractive apt-get install -y docker-compose || true
   fi
 }
 
 cloud_agent_start_docker() {
-  if docker info >/dev/null 2>&1; then
-    DOCKER=(docker)
-    return 0
-  fi
-  if sudo docker info >/dev/null 2>&1; then
-    DOCKER=(sudo docker)
+  if docker info >/dev/null 2>&1 || sudo docker info >/dev/null 2>&1; then
     return 0
   fi
 
@@ -35,23 +25,41 @@ cloud_agent_start_docker() {
     || true
   if ! docker info >/dev/null 2>&1 && ! sudo docker info >/dev/null 2>&1; then
     if command -v dockerd >/dev/null 2>&1 || sudo bash -lc 'command -v dockerd' >/dev/null 2>&1; then
-      echo "cloud-agent: starting dockerd directly" >>/tmp/cloud-agent-docker.log
+      echo "cloud-agent: starting dockerd directly"
       sudo dockerd >>/tmp/cloud-agent-docker.log 2>&1 &
+    else
+      echo "cloud-agent: dockerd is not installed" >>/tmp/cloud-agent-docker.log
     fi
   fi
 
   local attempt
   for attempt in $(seq 1 30); do
-    if docker info >/dev/null 2>&1; then
-      DOCKER=(docker)
-      return 0
-    fi
-    if sudo docker info >/dev/null 2>&1; then
-      DOCKER=(sudo docker)
+    if docker info >/dev/null 2>&1 || sudo docker info >/dev/null 2>&1; then
       return 0
     fi
     sleep 1
   done
+  return 1
+}
+
+cloud_agent_compose() {
+  if sudo docker compose version >/dev/null 2>&1; then
+    sudo docker compose "$@"
+    return
+  fi
+  if docker compose version >/dev/null 2>&1; then
+    docker compose "$@"
+    return
+  fi
+  if command -v docker-compose >/dev/null 2>&1; then
+    docker-compose "$@"
+    return
+  fi
+  if sudo bash -lc 'command -v docker-compose' >/dev/null 2>&1; then
+    sudo docker-compose "$@"
+    return
+  fi
+  echo "cloud-agent: docker compose is not available" >&2
   return 1
 }
 

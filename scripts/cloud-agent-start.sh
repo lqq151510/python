@@ -13,6 +13,6 @@ if ! cloud_agent_start_docker; then
   exit 1
 fi
 
-"${DOCKER[@]}" compose -p devassist pull db
-"${DOCKER[@]}" compose -p devassist up -d --wait db
+cloud_agent_compose -p devassist pull db
+cloud_agent_compose -p devassist up -d --wait db
 (cd backend && uv run --frozen bash scripts/prestart.sh)

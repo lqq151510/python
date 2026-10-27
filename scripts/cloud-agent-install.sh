@@ -29,7 +29,7 @@ source "$root/scripts/cloud-agent-docker.sh"
 cloud_agent_install_docker
 if cloud_agent_start_docker; then
   echo "cloud-agent: caching postgres image"
-  if ! "${DOCKER[@]}" compose -p devassist pull db; then
+  if ! cloud_agent_compose -p devassist pull db; then
     echo "cloud-agent: postgres pull failed; start will retry"
   fi
 else
