@@ -86,6 +86,13 @@ export function DevAssistLayout({ children }: { children: ReactNode }) {
             <Clapperboard size={22} aria-hidden="true" />
             AI 视频生成
           </Link>
+          <Link
+            to="/settings"
+            aria-current={path === "/settings" ? "page" : undefined}
+          >
+            <UserRound size={22} aria-hidden="true" />
+            个人中心
+          </Link>
         </nav>
         <div className="da-sidebar-footer">
           <button
@@ -106,7 +113,7 @@ export function DevAssistLayout({ children }: { children: ReactNode }) {
             </summary>
             <div className="da-account-menu">
               <p>{user?.email}</p>
-              <Link to="/settings">账号设置</Link>
+              <Link to="/settings">个人中心</Link>
               <Link to="/">应用首页</Link>
               <Link to="/items">模板项目</Link>
               {user?.is_superuser && <Link to="/admin">用户管理</Link>}
@@ -147,7 +154,9 @@ export function DevAssistHeader({
         ? NotebookPen
         : title.includes("复习")
           ? ListChecks
-          : Bot
+          : title.includes("个人")
+            ? UserRound
+            : Bot
     : aigc
       ? Clapperboard
       : knowledge
