@@ -6,6 +6,7 @@ import {
   FileText,
   Image as ImageIcon,
   MessageSquare,
+  ListChecks,
   NotebookPen,
 } from "lucide-react"
 
@@ -42,6 +43,12 @@ const modules = [
     title: "学习笔记",
     text: "记下结论和待查问题，不和其他账号共享。",
     icon: NotebookPen,
+  },
+  {
+    to: "/tasks",
+    title: "复习清单",
+    text: "把还没掌握的点标成待复习，完成后再勾掉。",
+    icon: ListChecks,
   },
   {
     to: "/learning",

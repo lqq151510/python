@@ -6,6 +6,7 @@ import {
   Code2,
   FileText,
   Image as ImageIcon,
+  ListChecks,
   LogOut,
   MessageSquare,
   NotebookPen,
@@ -66,6 +67,13 @@ export function DevAssistLayout({ children }: { children: ReactNode }) {
           >
             <NotebookPen size={22} aria-hidden="true" />
             学习笔记
+          </Link>
+          <Link
+            to="/tasks"
+            aria-current={path === "/tasks" ? "page" : undefined}
+          >
+            <ListChecks size={22} aria-hidden="true" />
+            复习清单
           </Link>
           <Link
             to="/learning"
@@ -137,7 +145,9 @@ export function DevAssistHeader({
       ? ImageIcon
       : title.includes("笔记")
         ? NotebookPen
-        : Bot
+        : title.includes("复习")
+          ? ListChecks
+          : Bot
     : aigc
       ? Clapperboard
       : knowledge

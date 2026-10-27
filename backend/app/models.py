@@ -317,3 +317,47 @@ class NotePublic(NoteBase):
 class NotesPublic(SQLModel):
     data: list[NotePublic]
     count: int
+
+
+class StudyTaskBase(SQLModel):
+    title: str = Field(min_length=1, max_length=80)
+    detail: str = Field(default="", max_length=1000)
+
+
+class StudyTaskCreate(StudyTaskBase):
+    pass
+
+
+class StudyTaskUpdate(SQLModel):
+    title: str | None = Field(default=None, min_length=1, max_length=80)
+    detail: str | None = Field(default=None, max_length=1000)
+    done: bool | None = None
+
+
+class StudyTask(StudyTaskBase, table=True):
+    """登录用户自己的复习清单，完成状态不和其他账号共享。"""
+
+    __table_args__ = (Index("ix_studytask_owner_done", "owner_id", "done"),)
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    owner_id: uuid.UUID = Field(foreign_key="user.id", ondelete="CASCADE", index=True)
+    done: bool = False
+    created_at: datetime = Field(
+        default_factory=get_datetime_utc, sa_type=DateTime(timezone=True)
+    )
+    updated_at: datetime = Field(
+        default_factory=get_datetime_utc, sa_type=DateTime(timezone=True)
+    )
+
+
+class StudyTaskPublic(StudyTaskBase):
+    id: uuid.UUID
+    done: bool
+    created_at: datetime
+    updated_at: datetime
+
+
+class StudyTasksPublic(SQLModel):
+    data: list[StudyTaskPublic]
+    count: int
+    open_count: int
