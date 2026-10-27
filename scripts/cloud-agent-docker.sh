@@ -14,6 +14,12 @@ cloud_agent_start_docker() {
   sudo service docker start >/tmp/cloud-agent-docker.log 2>&1 \
     || sudo systemctl start docker >>/tmp/cloud-agent-docker.log 2>&1 \
     || true
+  if ! docker info >/dev/null 2>&1 && ! sudo docker info >/dev/null 2>&1; then
+    if command -v dockerd >/dev/null 2>&1 || sudo bash -lc 'command -v dockerd' >/dev/null 2>&1; then
+      echo "cloud-agent: starting dockerd directly" >>/tmp/cloud-agent-docker.log
+      sudo dockerd >>/tmp/cloud-agent-docker.log 2>&1 &
+    fi
+  fi
 
   local attempt
   for attempt in $(seq 1 30); do
