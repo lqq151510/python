@@ -1,8 +1,10 @@
-import { useQuery } from "@tanstack/react-query"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Clock3, FileText, LoaderCircle, X } from "lucide-react"
 import { useState } from "react"
 
+import { LoadingButton } from "@/components/ui/loading-button"
 import { listChatHistory, readChatHistory } from "@/lib/chat-history"
+import { createNote, describeNoteError } from "@/lib/notes"
 
 export function ChatHistory({ userId }: { userId: string }) {
   const [selectedId, setSelectedId] = useState("")
@@ -15,6 +17,22 @@ export function ChatHistory({ userId }: { userId: string }) {
     queryKey: ["chat-history-detail", userId, selectedId],
     queryFn: () => readChatHistory(selectedId),
     enabled: Boolean(userId && selectedId),
+  })
+  const queryClient = useQueryClient()
+  const [savedNotice, setSavedNotice] = useState("")
+  const saveNote = useMutation({
+    mutationFn: () => {
+      const item = detail.data
+      if (!item) throw new Error("missing")
+      const title = item.message.trim().slice(0, 80) || "问答笔记"
+      const body = item.answer.trim().slice(0, 4000)
+      return createNote({ title, body })
+    },
+    onSuccess: async () => {
+      setSavedNotice("已存入学习笔记。")
+      await queryClient.invalidateQueries({ queryKey: ["notes", userId] })
+    },
+    onError: (error) => setSavedNotice(describeNoteError(error)),
   })
 
   return (
@@ -87,6 +105,19 @@ export function ChatHistory({ userId }: { userId: string }) {
               <p>{detail.data.message}</p>
               <h3>回答</h3>
               <p className="da-chat-history-answer">{detail.data.answer}</p>
+              <LoadingButton
+                type="button"
+                variant="outline"
+                loading={saveNote.isPending}
+                disabled={!detail.data.answer.trim()}
+                onClick={() => {
+                  setSavedNotice("")
+                  saveNote.mutate()
+                }}
+              >
+                存成笔记
+              </LoadingButton>
+              {savedNotice ? <p role="status">{savedNotice}</p> : null}
               {detail.data.retrieval_warning && (
                 <p className="da-chat-history-warning">
                   本次检索发生降级：{detail.data.retrieval_warning}

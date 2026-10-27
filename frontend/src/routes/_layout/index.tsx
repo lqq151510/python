@@ -6,7 +6,9 @@ import {
   FileText,
   Image as ImageIcon,
   MessageSquare,
+  ListChecks,
   NotebookPen,
+  UserRound,
 } from "lucide-react"
 
 import { DevAssistHeader } from "@/components/Common/DevAssistLayout"
@@ -44,6 +46,12 @@ const modules = [
     icon: NotebookPen,
   },
   {
+    to: "/tasks",
+    title: "复习清单",
+    text: "把还没掌握的点标成待复习，完成后再勾掉。",
+    icon: ListChecks,
+  },
+  {
     to: "/learning",
     title: "学习实验",
     text: "按需打开数据库和检索实验。",
@@ -54,6 +62,12 @@ const modules = [
     title: "AI 视频生成",
     text: "提交本机任务并查看进度。",
     icon: Clapperboard,
+  },
+  {
+    to: "/settings",
+    title: "个人中心",
+    text: "查看账号、修改资料和密码。",
+    icon: UserRound,
   },
 ] as const
 
