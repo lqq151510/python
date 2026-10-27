@@ -25,6 +25,7 @@ function TasksPage() {
   const [detail, setDetail] = useState("")
   const [notice, setNotice] = useState("")
   const [showDone, setShowDone] = useState(false)
+  const [keyword, setKeyword] = useState("")
   const tasks = useQuery({
     queryKey: ["tasks", user?.id],
     queryFn: listStudyTasks,
@@ -63,9 +64,15 @@ function TasksPage() {
     save.mutate({ title, detail })
   }
 
-  const visible = (tasks.data?.data ?? []).filter((task) =>
-    showDone ? task.done : !task.done,
-  )
+  const needle = keyword.trim().toLowerCase()
+  const visible = (tasks.data?.data ?? []).filter((task) => {
+    if (showDone !== task.done) return false
+    if (!needle) return true
+    return (
+      task.title.toLowerCase().includes(needle) ||
+      task.detail.toLowerCase().includes(needle)
+    )
+  })
 
   return (
     <section className="da-notes">
@@ -97,6 +104,15 @@ function TasksPage() {
         </LoadingButton>
         {notice ? <p role="status">{notice}</p> : null}
       </form>
+      <label className="da-note-form">
+        搜索复习项
+        <input
+          value={keyword}
+          placeholder="标题或说明"
+          onChange={(event) => setKeyword(event.target.value)}
+        />
+      </label>
+      {tasks.isError ? <p role="alert">复习清单读取失败，请检查连接后重试。</p> : null}
       <div className="da-task-switch">
         <button type="button" aria-pressed={!showDone} onClick={() => setShowDone(false)}>
           未完成
@@ -132,7 +148,13 @@ function TasksPage() {
         ))}
       </ul>
       {tasks.data && visible.length === 0 ? (
-        <p>{showDone ? "还没有完成的复习项。" : "未完成清单是空的。"}</p>
+        <p>
+          {needle
+            ? "没有匹配的复习项。"
+            : showDone
+              ? "还没有完成的复习项。"
+              : "未完成清单是空的。"}
+        </p>
       ) : null}
     </section>
   )

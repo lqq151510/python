@@ -33,6 +33,10 @@ CHUNK_OVERLAP = 80
 # 本地 Ollama（Agent 用）：只走本机回环地址，不含任何密钥
 OLLAMA_BASE_URL = os.environ.get("OLLAMA_BASE_URL", "http://127.0.0.1:11434").rstrip("/")
 AGENT_MODEL = os.environ.get("ZEBAO_RAG_AGENT_MODEL", "qwen-fast:latest")
+CODE_MODEL = os.environ.get("ZEBAO_RAG_CODE_MODEL", "mellum2.1-q6k:latest")
+CODE_NUM_CTX = 8192
+CODE_MAX_TOKENS = 4096
+CODE_TIMEOUT_S = 300.0
 AGENT_MAX_STEPS = 5          # 单轮问答的最大工具调用步数，防死循环
 AGENT_TIMEOUT_S = 120.0      # 单次请求超时
 AGENT_NUM_CTX = 8192         # 上下文窗口：够用且不撑爆内存

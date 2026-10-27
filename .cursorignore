@@ -1,0 +1,41 @@
+# Cursor Context & Agent Ignore File
+# Prevents Cursor Agent from reading giant files and polluting conversation tokens
+
+# Lock files (HIGH PRIORITY: prevents hundreds of thousands of tokens from being eaten)
+*.lock
+uv.lock
+bun.lock
+package-lock.json
+pnpm-lock.yaml
+yarn.lock
+
+# Virtual environments & Dependencies
+.venv/
+venv/
+node_modules/
+__pycache__/
+*.pyc
+
+# Build outputs & caches
+dist/
+build/
+target/
+.ruff_cache/
+.local/
+*.egg-info/
+
+# Databases, Vectors & Datasets
+*.sqlite
+*.sqlite3
+*.db
+chroma_db/
+milvus_data/
+*.parquet
+*.csv
+
+# Documentation & Large changelogs
+release-notes.md
+
+# Logs
+*.log
+logs/

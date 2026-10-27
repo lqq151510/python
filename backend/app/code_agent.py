@@ -1,6 +1,7 @@
 """Bounded code generation over an owner-scoped, upload-only workspace."""
 
 import asyncio
+import difflib
 import json
 import logging
 import os
@@ -11,7 +12,7 @@ import uuid
 from pathlib import Path, PurePosixPath
 from threading import Lock
 from typing import Literal
-from urllib.parse import quote
+from urllib.parse import quote, urlparse
 
 import httpx
 from pydantic import BaseModel, ConfigDict, Field, SecretStr
@@ -35,6 +36,14 @@ MAX_WORKSPACE_BYTES = 4 * 1024 * 1024
 MAX_CONTEXT_BYTES = 64 * 1024
 MAX_GENERATED_FILE_BYTES = 256 * 1024
 MAX_GENERATED_FILES = 8
+MAX_GITHUB_IMPORT_FILES = 15
+_GITHUB_REPOSITORY = re.compile(
+    r"^(?:https://github\.com/)?([A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?)"
+    r"/([A-Za-z0-9._-]{1,100})(?:\.git)?/?$"
+)
+_GITHUB_SKIP_PARTS = frozenset(
+    {"node_modules", "dist", "build", "vendor", "venv", "__pycache__"}
+)
 MAX_MODEL_RESPONSE_CHARS = 400_000
 CODE_FILE_EXTENSIONS = frozenset(
     {
@@ -84,6 +93,17 @@ class CodeFileEdit(BaseModel):
     content: str = Field(max_length=MAX_GENERATED_FILE_BYTES)
 
 
+class CodeDiffLine(BaseModel):
+    kind: Literal["add", "delete"]
+    text: str
+
+
+class CodeDiffResult(BaseModel):
+    status: Literal["new", "unchanged", "changed"]
+    lines: list[CodeDiffLine]
+    truncated: bool = False
+
+
 class CodeAgentOutput(BaseModel):
     plan: list[str] = Field(default_factory=list, max_length=12)
     summary: str = Field(default="", max_length=3000)
@@ -108,6 +128,34 @@ class CodeModelConfig(BaseModel):
     api_format: CodeApiFormat
     model: str | None
     configured: bool
+    local: bool = False
+    base_url_host: str | None = None
+
+
+class GithubImportRequest(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True)
+    repository: str = Field(min_length=1, max_length=200)
+
+
+class GithubImportResult(BaseModel):
+    files: list[WorkspaceFile]
+    total_bytes: int
+    imported: int
+    repository: str
+    branch: str
+
+
+class WorkspaceFileWrite(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=False)
+    path: str = Field(min_length=1, max_length=180)
+    content: str = Field(max_length=MAX_CODE_FILE_BYTES)
+
+
+class WorkspaceDiffRequest(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=False)
+    path: str = Field(min_length=1, max_length=180)
+    content: str = Field(max_length=MAX_CODE_FILE_BYTES)
+    full: bool = False
 
 
 def _owner_root(owner_id: uuid.UUID) -> Path:
@@ -228,6 +276,194 @@ def _store_workspace_uploads(
     return list_workspace(owner_id)
 
 
+def parse_github_repository(value: str) -> tuple[str, str]:
+    match = _GITHUB_REPOSITORY.fullmatch(value.strip())
+    if match is None:
+        raise CodeAgentError(422, "invalid_github_repository", "请填写 github.com/所有者/仓库 这样的公开仓库地址。")
+    owner, repository = match.group(1), match.group(2).removesuffix(".git")
+    if owner in {".", ".."} or repository in {".", ".."}:
+        raise CodeAgentError(422, "invalid_github_repository", "仓库地址不合法。")
+    return owner, repository
+
+
+def select_github_paths(entries: list[dict[str, object]]) -> list[str]:
+    selected: list[tuple[int, str]] = []
+    for entry in entries:
+        if entry.get("type") != "blob":
+            continue
+        raw_path = entry.get("path")
+        size = entry.get("size")
+        if not isinstance(raw_path, str) or not isinstance(size, int):
+            continue
+        if size <= 0 or size > MAX_CODE_FILE_BYTES:
+            continue
+        parts = raw_path.split("/")
+        if any(part in _GITHUB_SKIP_PARTS for part in parts):
+            continue
+        try:
+            path = normalize_workspace_path(raw_path)
+        except CodeAgentError:
+            continue
+        selected.append((size, path))
+    selected.sort(key=lambda item: (item[0], item[1].casefold()))
+    return [path for _size, path in selected[:MAX_GITHUB_IMPORT_FILES]]
+
+
+def _github_headers() -> dict[str, str]:
+    headers = {
+        "User-Agent": "DevAssist",
+        "Accept": "application/vnd.github+json",
+    }
+    token = settings.GITHUB_TOKEN
+    if token is not None and token.get_secret_value().strip():
+        headers["Authorization"] = f"Bearer {token.get_secret_value().strip()}"
+    return headers
+
+
+async def _github_json(client: httpx.AsyncClient, url: str) -> dict[str, object]:
+    response = await client.get(url, headers=_github_headers())
+    if response.status_code in {301, 302, 303, 307, 308}:
+        raise CodeAgentError(502, "github_unavailable", "GitHub 返回了意外跳转，已停止导入。")
+    if response.status_code == 404:
+        raise CodeAgentError(404, "github_repository_not_found", "找不到这个公开仓库，或它不是公开的。")
+    if response.status_code == 403:
+        raise CodeAgentError(429, "github_rate_limited", "GitHub 暂时拒绝了请求，请稍后再试。")
+    if response.status_code >= 400:
+        raise CodeAgentError(502, "github_unavailable", "暂时无法读取 GitHub 仓库。")
+    data = response.json()
+    if not isinstance(data, dict):
+        raise CodeAgentError(502, "github_unavailable", "GitHub 返回了无法识别的结果。")
+    return data
+
+
+async def import_github_repository(owner_id: uuid.UUID, repository: str) -> GithubImportResult:
+    owner, name = parse_github_repository(repository)
+    timeout = httpx.Timeout(20, connect=8)
+    async with httpx.AsyncClient(timeout=timeout, follow_redirects=False) as client:
+        meta = await _github_json(client, f"https://api.github.com/repos/{owner}/{name}")
+        if meta.get("private") is True:
+            raise CodeAgentError(403, "github_repository_private", "只支持导入公开仓库。")
+        branch = meta.get("default_branch")
+        if not isinstance(branch, str) or not branch or "/" in branch or ".." in branch:
+            raise CodeAgentError(502, "github_unavailable", "仓库没有可用的默认分支。")
+        tree = await _github_json(
+            client,
+            f"https://api.github.com/repos/{owner}/{name}/git/trees/{quote(branch, safe='')}?recursive=1",
+        )
+        entries = tree.get("tree")
+        if not isinstance(entries, list):
+            raise CodeAgentError(502, "github_unavailable", "无法读取仓库文件列表。")
+        paths = select_github_paths([item for item in entries if isinstance(item, dict)])
+        if not paths:
+            raise CodeAgentError(422, "github_no_supported_files", "这个仓库里没有可导入的文本代码文件。")
+        downloaded: list[tuple[str, bytes]] = []
+        for path in paths:
+            encoded = "/".join(quote(part, safe="") for part in path.split("/"))
+            response = await client.get(
+                f"https://raw.githubusercontent.com/{owner}/{name}/{quote(branch, safe='')}/{encoded}",
+                headers={"User-Agent": "DevAssist"},
+            )
+            if response.status_code != 200 or len(response.content) > MAX_CODE_FILE_BYTES:
+                continue
+            try:
+                response.content.decode("utf-8-sig")
+            except UnicodeDecodeError:
+                continue
+            downloaded.append((path, response.content))
+    if not downloaded:
+        raise CodeAgentError(422, "github_no_supported_files", "仓库文件无法作为 UTF-8 文本导入。")
+    workspace = await asyncio.to_thread(_store_github_files, owner_id, downloaded)
+    return GithubImportResult(
+        files=workspace.files,
+        total_bytes=workspace.total_bytes,
+        imported=len(downloaded),
+        repository=f"{owner}/{name}",
+        branch=branch,
+    )
+
+
+def _store_github_files(
+    owner_id: uuid.UUID, files: list[tuple[str, bytes]]
+) -> CodeWorkspacePublic:
+    with _workspace_write_lock:
+        current = list_workspace(owner_id)
+        existing = {item.path for item in current.files}
+        new_total = current.total_bytes
+        destinations: list[tuple[Path, bytes]] = []
+        for relative_path, content in files:
+            if relative_path in existing:
+                continue
+            if len(current.files) + len(destinations) >= MAX_WORKSPACE_FILES:
+                break
+            if new_total + len(content) > MAX_WORKSPACE_BYTES:
+                break
+            target = _target_path(owner_id, relative_path)
+            new_total += len(content)
+            destinations.append((target, content))
+        if not destinations:
+            raise CodeAgentError(409, "github_nothing_new", "这些文件已经在当前工作区里。")
+        created: list[Path] = []
+        try:
+            for target, content in destinations:
+                target.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+                with target.open("xb") as output:
+                    created.append(target)
+                    os.chmod(target, 0o600)
+                    output.write(content)
+        except OSError:
+            for path in created:
+                path.unlink(missing_ok=True)
+            raise CodeAgentError(500, "workspace_write_failed", "无法把 GitHub 文件写入工作区。") from None
+        return list_workspace(owner_id)
+
+
+def save_workspace_file(owner_id: uuid.UUID, relative_path: str, content: str) -> CodeWorkspacePublic:
+    with _workspace_write_lock:
+        encoded = content.encode("utf-8")
+        if len(encoded) > MAX_CODE_FILE_BYTES:
+            raise CodeAgentError(413, "file_too_large", "单个代码文件不能超过 512 KiB。")
+        target = _target_path(owner_id, relative_path)
+        current = list_workspace(owner_id)
+        normalized = normalize_workspace_path(relative_path)
+        sizes = {item.path: item.size_bytes for item in current.files}
+        new_total = current.total_bytes + len(encoded) - sizes.get(normalized, 0)
+        file_count = len(current.files) + (0 if normalized in sizes else 1)
+        if new_total > MAX_WORKSPACE_BYTES or file_count > MAX_WORKSPACE_FILES:
+            raise CodeAgentError(413, "workspace_limit", "工作区最多 50 个文件、总容量 4 MiB。")
+        target.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        if not target.parent.resolve().is_relative_to(_owner_root(owner_id)):
+            raise CodeAgentError(422, "invalid_workspace_path", "工作区文件路径不合法。")
+        descriptor, temporary_name = tempfile.mkstemp(prefix=".", suffix=".writing", dir=target.parent)
+        os.close(descriptor)
+        temporary = Path(temporary_name)
+        try:
+            temporary.write_bytes(encoded)
+            os.chmod(temporary, 0o600)
+            os.replace(temporary, target)
+            os.chmod(target, 0o600)
+        except OSError:
+            temporary.unlink(missing_ok=True)
+            raise CodeAgentError(500, "workspace_write_failed", "无法保存工作区文件。") from None
+        return list_workspace(owner_id)
+
+
+def delete_workspace_file(owner_id: uuid.UUID, relative_path: str) -> CodeWorkspacePublic:
+    with _workspace_write_lock:
+        target = _target_path(owner_id, relative_path)
+        if not target.is_file():
+            raise CodeAgentError(404, "workspace_file_not_found", "工作区文件不存在。")
+        target.unlink()
+        parent = target.parent
+        root = _owner_root(owner_id)
+        while parent != root and parent.is_relative_to(root):
+            try:
+                parent.rmdir()
+            except OSError:
+                break
+            parent = parent.parent
+        return list_workspace(owner_id)
+
+
 def read_workspace_file(owner_id: uuid.UUID, relative_path: str) -> str:
     target = _target_path(owner_id, relative_path)
     try:
@@ -236,6 +472,95 @@ def read_workspace_file(owner_id: uuid.UUID, relative_path: str) -> str:
         return target.read_text(encoding="utf-8-sig")
     except UnicodeDecodeError:
         raise CodeAgentError(422, "invalid_encoding", "文件内容不是有效的 UTF-8 文本。") from None
+
+
+def diff_text(before: str | None, after: str, *, full: bool = False) -> CodeDiffResult:
+    limit = None if full else 80
+
+    def clipped(rows: list[str], kind: str) -> tuple[list[CodeDiffLine], bool]:
+        if limit is None:
+            return [CodeDiffLine(kind=kind, text=line) for line in rows], False
+        return [CodeDiffLine(kind=kind, text=line) for line in rows[:limit]], len(rows) > limit
+
+    if before is None:
+        added, truncated = clipped(after.split("\n"), "add")
+        return CodeDiffResult(status="new", lines=added, truncated=truncated)
+    if before == after:
+        return CodeDiffResult(status="unchanged", lines=[])
+    previous = before.split("\n")
+    proposed = after.split("\n")
+    lines: list[CodeDiffLine] = []
+    truncated = False
+    for tag, i1, i2, j1, j2 in difflib.SequenceMatcher(
+        a=previous, b=proposed, autojunk=False
+    ).get_opcodes():
+        if tag == "equal":
+            continue
+        groups: list[tuple[str, list[str]]] = []
+        if tag in {"replace", "delete"}:
+            groups.append(("delete", previous[i1:i2]))
+        if tag in {"replace", "insert"}:
+            groups.append(("add", proposed[j1:j2]))
+        for kind, group in groups:
+            for line in group:
+                if limit is not None and len(lines) >= limit:
+                    truncated = True
+                    break
+                lines.append(CodeDiffLine(kind=kind, text=line))
+            if truncated:
+                break
+        if truncated:
+            break
+    return CodeDiffResult(status="changed", lines=lines, truncated=truncated)
+
+
+def review_workspace_diff(
+    owner_id: uuid.UUID, relative_path: str, content: str, *, full: bool = False
+) -> CodeDiffResult:
+    if len(content.encode("utf-8")) > MAX_GENERATED_FILE_BYTES:
+        raise CodeAgentError(413, "generated_file_too_large", "单个生成文件不能超过 256 KiB。")
+    try:
+        before = read_workspace_file(owner_id, relative_path)
+    except CodeAgentError as exc:
+        if exc.code != "workspace_file_not_found":
+            raise
+        before = None
+    return diff_text(before, content, full=full)
+
+
+def _extract_json_object(raw: str) -> str:
+    text = raw.strip()
+    fenced = re.search(
+        r"```(?:json)?\s*(\{.*\})\s*```",
+        text,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    if fenced:
+        text = fenced.group(1)
+    start = text.find("{")
+    if start < 0:
+        raise ValueError("missing object")
+    depth = 0
+    in_string = False
+    escaped = False
+    for index, char in enumerate(text[start:], start):
+        if in_string:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == '"':
+                in_string = False
+            continue
+        if char == '"':
+            in_string = True
+        elif char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+            if depth == 0:
+                return text[start : index + 1]
+    raise ValueError("unbalanced object")
 
 
 def _validate_edits(edits: list[CodeFileEdit]) -> list[CodeFileEdit]:
@@ -327,37 +652,65 @@ def _apply_workspace_edits(owner_id: uuid.UUID, edits: list[CodeFileEdit]) -> Co
     return list_workspace(owner_id)
 
 
+_LOCAL_MODEL_HOSTS = frozenset({"localhost", "127.0.0.1", "::1", "host.docker.internal"})
+# 只在发往本机兼容接口时填进 Authorization，不是生产密钥，也不应写入仓库。
+_LOCAL_AUTH_PLACEHOLDER = "local-dev-not-a-secret"
+
+
+def _base_url_host(base_url: str | None) -> str | None:
+    if not base_url:
+        return None
+    hostname = urlparse(base_url).hostname
+    return hostname.lower() if hostname else None
+
+
+def _is_local_model_host(base_url: str | None) -> bool:
+    return _base_url_host(base_url) in _LOCAL_MODEL_HOSTS
+
+
+def _explicit_secret(value: SecretStr | None) -> SecretStr | None:
+    if value is None or not value.get_secret_value().strip():
+        return None
+    return value
+
+
 def get_model_config() -> CodeModelConfig:
     model, key, base_url = _model_settings()
+    ready = bool(model and base_url and key and key.get_secret_value().strip())
     return CodeModelConfig(
         api_format=settings.CODE_API_FORMAT,
         model=model,
-        configured=bool(model and key and key.get_secret_value().strip() and base_url),
+        configured=ready,
+        local=_is_local_model_host(base_url),
+        base_url_host=_base_url_host(base_url),
     )
 
 
 def _model_settings() -> tuple[str | None, SecretStr | None, str | None]:
     api_format = settings.CODE_API_FORMAT
-    key = settings.CODE_API_KEY
-    model = settings.CODE_MODEL
-    base_url = str(settings.CODE_BASE_URL).rstrip("/") if settings.CODE_BASE_URL else None
-    if api_format == "openai_chat_completions":
-        if key is None:
-            key = settings.DEEPSEEK_API_KEY
-        if model is None:
-            model = (
-                None
-                if settings.CODE_API_KEY is not None
-                else settings.DEEPSEEK_MODEL
-            )
-        if base_url is None:
-            base_url = (
-                "https://api.openai.com/v1"
-                if settings.CODE_API_KEY is not None
-                else str(settings.DEEPSEEK_BASE_URL).rstrip("/")
-            )
+    explicit_key = _explicit_secret(settings.CODE_API_KEY)
+    explicit_model = settings.CODE_MODEL
+    explicit_base = str(settings.CODE_BASE_URL).rstrip("/") if settings.CODE_BASE_URL else None
+    uses_deepseek_defaults = (
+        api_format == "openai_chat_completions"
+        and explicit_key is None
+        and explicit_model is None
+        and explicit_base is None
+    )
+    if uses_deepseek_defaults:
+        model = settings.DEEPSEEK_MODEL
+        key = _explicit_secret(settings.DEEPSEEK_API_KEY)
+        base_url = str(settings.DEEPSEEK_BASE_URL).rstrip("/")
+    elif api_format == "openai_chat_completions":
+        model = explicit_model
+        base_url = explicit_base or "https://api.openai.com/v1"
+        key = explicit_key
     else:
-        base_url = base_url or PROVIDER_DEFAULTS[api_format]
+        model = explicit_model
+        base_url = explicit_base or PROVIDER_DEFAULTS[api_format]
+        key = explicit_key
+    if key is None and _is_local_model_host(base_url):
+        key = SecretStr(_LOCAL_AUTH_PLACEHOLDER)
     return model, key, base_url
 
 
@@ -410,8 +763,16 @@ def _extract_provider_text(api_format: CodeApiFormat, data: object) -> str:
         choices = data.get("choices")
         if isinstance(choices, list) and choices and isinstance(choices[0], dict):
             message = choices[0].get("message")
-            if isinstance(message, dict) and isinstance(message.get("content"), str):
-                return message["content"]
+            if isinstance(message, dict):
+                content = message.get("content")
+                if isinstance(content, str):
+                    return content
+                if isinstance(content, list):
+                    return "\n".join(
+                        item["text"]
+                        for item in content
+                        if isinstance(item, dict) and isinstance(item.get("text"), str)
+                    )
     elif api_format == "openai_responses":
         if isinstance(data.get("output_text"), str):
             return data["output_text"]
@@ -539,16 +900,18 @@ async def generate_code(
     )
     raw = await _request_model(system, user, request_id)
     try:
-        text = re.sub(r"^```(?:json)?\s*|\s*```$", "", raw.strip(), flags=re.IGNORECASE)
-        output = CodeAgentOutput.model_validate_json(text)
+        output = CodeAgentOutput.model_validate_json(_extract_json_object(raw))
         edits = _validate_edits(output.edits)
     except (ValueError, TypeError, json.JSONDecodeError, CodeAgentError):
         raise CodeAgentError(502, "code_model_invalid_response", "模型结果不符合安全的计划和文件改动格式，请重试。") from None
+    summary = output.summary
     if body.plan_only and edits:
-        raise CodeAgentError(502, "code_model_invalid_response", "计划模式要求模型只返回计划，不得生成文件改动。")
+        edits = []
+        note = "模型附带了文件改动，计划模式已忽略。"
+        summary = f"{summary}\n{note}".strip()[:3000]
     return CodeGenerateResponse(
         plan=output.plan,
-        summary=output.summary,
+        summary=summary,
         edits=edits,
         request_id=request_id,
     )

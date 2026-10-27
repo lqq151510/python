@@ -1,0 +1,19 @@
+---
+description: Token efficiency and minimal-context rules for Composer Agent
+globs: *
+alwaysApply: true
+---
+
+# Agent Token & Context Optimization Rules
+
+1. **Surgical File Reading**:
+   - DO NOT read entire large files (>150 lines) into context unless strictly necessary.
+   - Use targeted search (`grep`, line offset reading) to locate symbols, functions, or error sites before reading code.
+   - Never re-read files that are already part of the conversation or recent context.
+
+2. **Strict Exclusions**:
+   - NEVER read lockfiles (`uv.lock`, `bun.lock`, `package-lock.json`), database binaries, log files, or build artifacts.
+
+3. **Fast Convergence**:
+   - Formulate a clear hypothesis and execute changes directly.
+   - Avoid open-ended, multi-step exploratory file reads that bloat the multi-turn conversation history.

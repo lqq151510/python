@@ -5,6 +5,7 @@ import { useState } from "react"
 import { LoadingButton } from "@/components/ui/loading-button"
 import { listChatHistory, readChatHistory } from "@/lib/chat-history"
 import { createNote, describeNoteError } from "@/lib/notes"
+import { createStudyTask, describeTaskError } from "@/lib/tasks"
 
 export function ChatHistory({ userId }: { userId: string }) {
   const [selectedId, setSelectedId] = useState("")
@@ -33,6 +34,21 @@ export function ChatHistory({ userId }: { userId: string }) {
       await queryClient.invalidateQueries({ queryKey: ["notes", userId] })
     },
     onError: (error) => setSavedNotice(describeNoteError(error)),
+  })
+  const saveTask = useMutation({
+    mutationFn: () => {
+      const item = detail.data
+      if (!item) throw new Error("missing")
+      return createStudyTask({
+        title: item.message.trim().slice(0, 80) || "复习这条问答",
+        detail: item.answer.trim().slice(0, 1000),
+      })
+    },
+    onSuccess: async () => {
+      setSavedNotice("已加入复习清单。")
+      await queryClient.invalidateQueries({ queryKey: ["tasks", userId] })
+    },
+    onError: (error) => setSavedNotice(describeTaskError(error)),
   })
 
   return (
@@ -105,18 +121,32 @@ export function ChatHistory({ userId }: { userId: string }) {
               <p>{detail.data.message}</p>
               <h3>回答</h3>
               <p className="da-chat-history-answer">{detail.data.answer}</p>
-              <LoadingButton
-                type="button"
-                variant="outline"
-                loading={saveNote.isPending}
-                disabled={!detail.data.answer.trim()}
-                onClick={() => {
-                  setSavedNotice("")
-                  saveNote.mutate()
-                }}
-              >
-                存成笔记
-              </LoadingButton>
+              <div>
+                <LoadingButton
+                  type="button"
+                  variant="outline"
+                  loading={saveNote.isPending}
+                  disabled={!detail.data.answer.trim()}
+                  onClick={() => {
+                    setSavedNotice("")
+                    saveNote.mutate()
+                  }}
+                >
+                  存成笔记
+                </LoadingButton>
+                <LoadingButton
+                  type="button"
+                  variant="outline"
+                  loading={saveTask.isPending}
+                  disabled={!detail.data.message.trim()}
+                  onClick={() => {
+                    setSavedNotice("")
+                    saveTask.mutate()
+                  }}
+                >
+                  加入复习
+                </LoadingButton>
+              </div>
               {savedNotice ? <p role="status">{savedNotice}</p> : null}
               {detail.data.retrieval_warning && (
                 <p className="da-chat-history-warning">

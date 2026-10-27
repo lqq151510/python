@@ -70,3 +70,13 @@ uv run --project services/zebao-rag python -m unittest discover -s services/zeba
 Redis 缓存命中 ID 与分数，有效期 180 秒。职责、练习和已知边界见根目录 `docs/LEARNING_DATABASES.md`。
 Milvus 服务为 2.4 系列，Python SDK 与 Setuptools 依赖已在本模块锁文件中固定兼容版本。
 `no_grpc_proxy` 只为模型进程追加本机地址，避免 gRPC 被全局代理转发。
+
+### 本地代码生成 CLI
+
+独立项目的代码生成命令已并入此目录。启动本机 Ollama 并准备模型后，可从 DevAssist 根目录运行：
+
+```bash
+uv run --project services/zebao-rag zebao-rag code "用 FastAPI 写健康检查接口"
+```
+
+默认模型为 `mellum2.1-q6k:latest`，可通过 `ZEBAO_RAG_CODE_MODEL` 更改；服务地址使用 `OLLAMA_BASE_URL`。该命令仅返回文本，不操作文件或执行命令，与网页编程工作台的 `CODE_*` 配置相互独立。模型是否可用需以本机实际安装状态为准。

@@ -19,6 +19,7 @@
 import sys
 
 from .agent import ChatSession, ask as agent_ask
+from .codegen import CodeGenerationError, generate_code
 from .config import (
     AGENT_DEFAULT_SESSION,
     IMAGES_DIR,
@@ -190,6 +191,16 @@ def cmd_ask(question: str) -> None:
     print(f"答：{agent_ask(question)}")
 
 
+def cmd_code(task: str) -> None:
+    """Generate code with the configured Ollama coding model."""
+    try:
+        answer = generate_code(task)
+    except CodeGenerationError as exc:
+        print(f"代码生成失败：{exc}", file=sys.stderr)
+        raise SystemExit(1) from exc
+    print(answer)
+
+
 def cmd_chat() -> None:
     """交互式多轮对话：同一个 session 里带上历史，直到 exit/退出。"""
     print("多轮对话（带历史记忆）｜输入 exit 或 退出 结束\n")
@@ -296,6 +307,8 @@ def main() -> None:
         cmd_search_japanese(rest[0])
     elif cmd == "ask" and rest:
         cmd_ask(rest[0])
+    elif cmd == "code" and rest:
+        cmd_code(" ".join(rest))
     elif cmd == "chat":
         name = next((a for a in rest if not a.startswith("--")), AGENT_DEFAULT_SESSION)
         cmd_chat(name, fresh="--new" in rest)

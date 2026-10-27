@@ -23,6 +23,7 @@ function NotesPage() {
   const queryClient = useQueryClient()
   const [title, setTitle] = useState("")
   const [body, setBody] = useState("")
+  const [keyword, setKeyword] = useState("")
   const [notice, setNotice] = useState("")
   const notes = useQuery({
     queryKey: ["notes", user?.id],
@@ -48,8 +49,15 @@ function NotesPage() {
     onError: (error) => setNotice(describeNoteError(error)),
   })
   const revise = useMutation({
-    mutationFn: ({ id, text }: { id: string; text: string }) =>
-      updateNote(id, { body: text }),
+    mutationFn: ({
+      id,
+      title: nextTitle,
+      text,
+    }: {
+      id: string
+      title: string
+      text: string
+    }) => updateNote(id, { title: nextTitle, body: text }),
     onSuccess: async () => {
       setNotice("笔记已更新。")
       await queryClient.invalidateQueries({ queryKey: ["notes", user?.id] })
@@ -62,6 +70,15 @@ function NotesPage() {
     setNotice("")
     save.mutate({ title, body })
   }
+
+  const needle = keyword.trim().toLowerCase()
+  const visibleNotes = (notes.data?.data ?? []).filter((note) => {
+    if (!needle) return true
+    return (
+      note.title.toLowerCase().includes(needle) ||
+      note.body.toLowerCase().includes(needle)
+    )
+  })
 
   return (
     <section className="da-notes">
@@ -94,19 +111,35 @@ function NotesPage() {
         </LoadingButton>
         {notice ? <p role="status">{notice}</p> : null}
       </form>
+      <label className="da-note-form">
+        搜索笔记
+        <input
+          value={keyword}
+          placeholder="标题或内容"
+          onChange={(event) => setKeyword(event.target.value)}
+        />
+      </label>
+      {notes.isError ? <p role="alert">笔记读取失败，请检查连接后重试。</p> : null}
       <ul className="da-note-list">
-        {notes.data?.data.map((note) => (
+        {visibleNotes.map((note) => (
           <NoteItem
             key={note.id}
             title={note.title}
             body={note.body}
             pending={remove.isPending || revise.isPending}
             onDelete={() => remove.mutate(note.id)}
-            onSave={(text) => revise.mutate({ id: note.id, text })}
+            onSave={(nextTitle, text) =>
+              revise.mutate({ id: note.id, title: nextTitle, text })
+            }
           />
         ))}
       </ul>
-      {notes.data?.count === 0 ? <p>还没有笔记。先写下一句今天要记住的结论。</p> : null}
+      {notes.data?.count === 0 ? (
+        <p>还没有笔记。先写下一句今天要记住的结论。</p>
+      ) : null}
+      {notes.data && notes.data.count > 0 && visibleNotes.length === 0 ? (
+        <p>没有匹配的笔记。</p>
+      ) : null}
     </section>
   )
 }
@@ -122,12 +155,21 @@ function NoteItem({
   body: string
   pending: boolean
   onDelete: () => void
-  onSave: (text: string) => void
+  onSave: (title: string, text: string) => void
 }) {
+  const [nextTitle, setNextTitle] = useState(title)
   const [text, setText] = useState(body)
   return (
     <li>
-      <h2>{title}</h2>
+      <label>
+        标题
+        <input
+          aria-label={`${title}的标题`}
+          value={nextTitle}
+          maxLength={80}
+          onChange={(event) => setNextTitle(event.target.value)}
+        />
+      </label>
       <textarea
         aria-label={`${title}的内容`}
         value={text}
@@ -140,7 +182,7 @@ function NoteItem({
           type="button"
           variant="outline"
           loading={pending}
-          onClick={() => onSave(text)}
+          onClick={() => onSave(nextTitle, text)}
         >
           更新
         </LoadingButton>

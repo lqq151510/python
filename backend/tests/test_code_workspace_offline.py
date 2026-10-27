@@ -202,6 +202,175 @@ def test_generate_reads_context_outside_event_loop(
     assert read_threads and all(thread != event_loop_thread for thread in read_threads)
 
 
+def test_generate_reads_json_wrapped_in_prose(
+    code_agent: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    owner = uuid.uuid4()
+
+    async def model_response(_system: str, _user: str, _request_id: str) -> str:
+        return (
+            "计划如下：\n```json\n"
+            '{"plan": ["写函数"], "summary": "完成", '
+            '"edits": [{"path": "util.py", "content": "def add(a, b):\\n    return a + b\\n"}]}\n'
+            "```\n请审阅。"
+        )
+
+    monkeypatch.setattr(code_agent, "_request_model", model_response)
+    result = asyncio.run(
+        code_agent.generate_code(
+            owner, code_agent.CodeGenerateRequest(task="add"), "wrapped"
+        )
+    )
+
+    assert result.plan == ["写函数"]
+    assert result.edits[0].path == "util.py"
+
+
+def test_plan_only_drops_unexpected_edits(
+    code_agent: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    owner = uuid.uuid4()
+
+    async def model_response(_system: str, _user: str, _request_id: str) -> str:
+        return json.dumps(
+            {
+                "plan": ["先看接口"],
+                "summary": "只做计划",
+                "edits": [{"path": "app.py", "content": "print(1)\n"}],
+            }
+        )
+
+    monkeypatch.setattr(code_agent, "_request_model", model_response)
+    result = asyncio.run(
+        code_agent.generate_code(
+            owner,
+            code_agent.CodeGenerateRequest(task="plan", plan_only=True),
+            "plan",
+        )
+    )
+
+    assert result.edits == []
+    assert "已忽略" in result.summary
+
+
+def _configure_code_model(code_agent: ModuleType, **values: object) -> None:
+    settings = code_agent.settings
+    settings.CODE_API_FORMAT = values.get("api_format", "openai_chat_completions")
+    settings.CODE_API_KEY = values.get("key")
+    settings.CODE_MODEL = values.get("model")
+    settings.CODE_BASE_URL = values.get("base_url")
+    settings.DEEPSEEK_API_KEY = values.get("deepseek_key")
+    settings.DEEPSEEK_MODEL = values.get("deepseek_model", "deepseek-flash")
+    settings.DEEPSEEK_BASE_URL = values.get("deepseek_base", "https://api.deepseek.com")
+
+
+def test_local_ollama_is_ready_without_a_stored_key(code_agent: ModuleType) -> None:
+    _configure_code_model(
+        code_agent,
+        model="qwen2.5-coder:7b",
+        base_url="http://127.0.0.1:11434/v1",
+    )
+    config = code_agent.get_model_config()
+    assert config.configured is True
+    assert config.local is True
+    assert config.base_url_host == "127.0.0.1"
+    assert code_agent._LOCAL_AUTH_PLACEHOLDER not in config.model_dump_json()
+    _model, key, base_url = code_agent._model_settings()
+    assert base_url == "http://127.0.0.1:11434/v1"
+    assert key.get_secret_value() == code_agent._LOCAL_AUTH_PLACEHOLDER
+
+
+def test_third_party_config_shows_host_without_the_key(code_agent: ModuleType) -> None:
+    secret = "sk-third-party-secret"
+    _configure_code_model(
+        code_agent,
+        key=code_agent.SecretStr(secret),
+        model="vendor-model",
+        base_url="https://user:hidden@api.example.com/v1?token=hidden",
+    )
+    config = code_agent.get_model_config()
+    assert config.configured is True
+    assert config.local is False
+    assert config.base_url_host == "api.example.com"
+    assert secret not in config.model_dump_json()
+
+
+def test_remote_openai_compatible_without_key_is_not_configured(
+    code_agent: ModuleType,
+) -> None:
+    _configure_code_model(
+        code_agent,
+        model="vendor-model",
+        base_url="https://api.example.com/v1",
+    )
+    config = code_agent.get_model_config()
+    assert config.configured is False
+    assert config.base_url_host == "api.example.com"
+
+
+def test_chat_completions_accepts_text_part_lists(code_agent: ModuleType) -> None:
+    text = code_agent._extract_provider_text(
+        "openai_chat_completions",
+        {"choices": [{"message": {"content": [{"text": "def add():\n    return 1"}]}}]},
+    )
+    assert "def add" in text
+
+
+def test_github_repository_parser_rejects_other_hosts(code_agent: ModuleType) -> None:
+    owner, name = code_agent.parse_github_repository("https://github.com/octocat/Hello-World.git")
+    assert (owner, name) == ("octocat", "Hello-World")
+    with pytest.raises(code_agent.CodeAgentError) as error:
+        code_agent.parse_github_repository("https://gitlab.com/octocat/Hello-World")
+    assert error.value.code == "invalid_github_repository"
+
+
+def test_github_import_skips_dependencies_and_binaries(code_agent: ModuleType) -> None:
+    paths = code_agent.select_github_paths([
+        {"path": "src/app.py", "type": "blob", "size": 20},
+        {"path": "node_modules/left-pad/index.js", "type": "blob", "size": 20},
+        {"path": "assets/logo.png", "type": "blob", "size": 20},
+        {"path": "README.md", "type": "blob", "size": 10},
+    ])
+    assert paths == ["README.md", "src/app.py"]
+
+
+def test_review_diff_shows_added_and_deleted_lines(code_agent: ModuleType) -> None:
+    owner = uuid.uuid4()
+    code_agent.save_workspace_file(owner, "src/app.py", "one\ntwo\n")
+    created = code_agent.review_workspace_diff(owner, "src/new.py", "print(1)\n")
+    assert created.status == "new"
+    assert [line.kind for line in created.lines] == ["add", "add"]
+    same = code_agent.review_workspace_diff(owner, "src/app.py", "one\ntwo\n")
+    assert same.status == "unchanged"
+    assert same.lines == []
+    changed = code_agent.review_workspace_diff(owner, "src/app.py", "one\nthree\n")
+    assert changed.status == "changed"
+    assert ("delete", "two") in [(line.kind, line.text) for line in changed.lines]
+    assert ("add", "three") in [(line.kind, line.text) for line in changed.lines]
+    long_file = "\n".join(f"line {index}" for index in range(100))
+    preview = code_agent.diff_text(None, long_file)
+    assert preview.truncated is True
+    assert len(preview.lines) == 80
+    complete = code_agent.diff_text(None, long_file, full=True)
+    assert complete.truncated is False
+    assert len(complete.lines) == 100
+
+
+def test_save_and_delete_stay_inside_the_owner_workspace(code_agent: ModuleType) -> None:
+    owner = uuid.uuid4()
+    code_agent.save_workspace_file(owner, "src/app.py", "print(1)\n")
+    assert code_agent.read_workspace_file(owner, "src/app.py") == "print(1)\n"
+    code_agent.save_workspace_file(owner, "src/app.py", "print(2)\n")
+    assert code_agent.read_workspace_file(owner, "src/app.py") == "print(2)\n"
+    code_agent.delete_workspace_file(owner, "src/app.py")
+    with pytest.raises(code_agent.CodeAgentError) as error:
+        code_agent.read_workspace_file(owner, "src/app.py")
+    assert error.value.code == "workspace_file_not_found"
+    with pytest.raises(code_agent.CodeAgentError) as escaped:
+        code_agent.delete_workspace_file(owner, "../escape.py")
+    assert escaped.value.code == "invalid_workspace_path"
+
+
 @pytest.mark.parametrize("invalid_path", ["../escape.py", "/escape.py", ".hidden.py"])
 def test_batch_still_rejects_unsafe_paths(
     code_agent: ModuleType, invalid_path: str

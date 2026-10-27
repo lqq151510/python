@@ -17,6 +17,16 @@ export const Route = createFileRoute("/_layout/settings")({
   head: () => ({ meta: [{ title: "个人中心 - DevAssist" }] }),
 })
 
+function countText(
+  query: { isPending: boolean; isError: boolean; data?: { count?: number; open_count?: number } },
+  field: "count" | "open_count",
+) {
+  if (query.isPending) return "…"
+  if (query.isError) return "失败"
+  const value = query.data?.[field]
+  return value ?? "—"
+}
+
 function accountError(error: unknown): string {
   if (!(error instanceof AxiosError)) return "操作失败，请稍后重试。"
   const detail = error.response?.data?.detail
@@ -86,19 +96,19 @@ function PersonalCenter() {
       <div className="da-profile-grid">
         <Link to="/notes">
           <span>学习笔记</span>
-          <strong>{notes.data?.count ?? "—"}</strong>
+          <strong>{countText(notes, "count")}</strong>
         </Link>
         <Link to="/tasks">
           <span>未完成复习</span>
-          <strong>{tasks.data?.open_count ?? "—"}</strong>
+          <strong>{countText(tasks, "open_count")}</strong>
         </Link>
         <Link to="/knowledge">
           <span>知识库文档</span>
-          <strong>{documents.data?.count ?? "—"}</strong>
+          <strong>{countText(documents, "count")}</strong>
         </Link>
         <Link to="/images">
           <span>图片</span>
-          <strong>{images.data?.count ?? "—"}</strong>
+          <strong>{countText(images, "count")}</strong>
         </Link>
       </div>
       <ProfileForm />
