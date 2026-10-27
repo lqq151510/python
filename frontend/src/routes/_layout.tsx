@@ -35,6 +35,7 @@ function Layout() {
     path === "/learning" ||
     path === "/aigc" ||
     path === "/notes" ||
+    path === "/tasks" ||
     path === "/"
   ) {
     return (
