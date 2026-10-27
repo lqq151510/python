@@ -258,6 +258,30 @@
 .da-task-switch button[aria-pressed="true"] {
   background: var(--da-mint);
 }
+.da-profile-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+  margin-top: 8px;
+}
+.da-profile-grid a,
+.da-profile-grid div {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: white;
+  color: inherit;
+  text-decoration: none;
+}
+.da-profile-grid span {
+  color: var(--muted-foreground);
+}
+.da-profile-grid strong {
+  font-size: 22px;
+}
 .da-header {
   display: flex;
   justify-content: space-between;

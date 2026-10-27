@@ -36,6 +36,7 @@ function Layout() {
     path === "/aigc" ||
     path === "/notes" ||
     path === "/tasks" ||
+    path === "/settings" ||
     path === "/"
   ) {
     return (

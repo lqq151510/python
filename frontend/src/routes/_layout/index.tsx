@@ -8,6 +8,7 @@ import {
   MessageSquare,
   ListChecks,
   NotebookPen,
+  UserRound,
 } from "lucide-react"
 
 import { DevAssistHeader } from "@/components/Common/DevAssistLayout"
@@ -61,6 +62,12 @@ const modules = [
     title: "AI 视频生成",
     text: "提交本机任务并查看进度。",
     icon: Clapperboard,
+  },
+  {
+    to: "/settings",
+    title: "个人中心",
+    text: "查看账号、修改资料和密码。",
+    icon: UserRound,
   },
 ] as const
 
