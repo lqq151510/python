@@ -33,7 +33,9 @@ function Layout() {
     path === "/images" ||
     path === "/agent" ||
     path === "/learning" ||
-    path === "/aigc"
+    path === "/aigc" ||
+    path === "/notes" ||
+    path === "/"
   ) {
     return (
       <DevAssistLayout>

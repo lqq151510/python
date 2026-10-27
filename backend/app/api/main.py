@@ -10,6 +10,7 @@ from app.api.routes import (
     items,
     learning,
     login,
+    notes,
     private,
     users,
     utils,
@@ -27,6 +28,7 @@ api_router.include_router(documents.router)
 api_router.include_router(images.router)
 api_router.include_router(agent.router)
 api_router.include_router(learning.router)
+api_router.include_router(notes.router)
 api_router.include_router(aigc.router)
 
 
