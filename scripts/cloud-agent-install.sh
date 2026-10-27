@@ -26,6 +26,7 @@ bun install --frozen-lockfile
 
 # shellcheck source=scripts/cloud-agent-docker.sh
 source "$root/scripts/cloud-agent-docker.sh"
+cloud_agent_install_docker
 if cloud_agent_start_docker; then
   echo "cloud-agent: caching postgres image"
   if ! "${DOCKER[@]}" compose -p devassist pull db; then
