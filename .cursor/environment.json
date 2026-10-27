@@ -9,8 +9,12 @@
     },
     {
       "name": "frontend",
-      "command": "cd frontend && exec bun run dev --host 0.0.0.0 --port 5173 --strictPort",
+      "command": "cd frontend && exec bun run dev -- --host 0.0.0.0 --port 5173 --strictPort",
       "description": "Vite"
     }
+  ],
+  "ports": [
+    { "name": "backend", "port": 8000 },
+    { "name": "frontend", "port": 5173 }
   ]
 }

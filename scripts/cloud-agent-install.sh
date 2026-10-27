@@ -24,7 +24,14 @@ bash scripts/ci-env.sh > .env
 uv sync --frozen --all-groups --python 3.14
 bun install --frozen-lockfile
 
-# 把数据库镜像放进构建快照。Docker 不可用时跳过，不让依赖安装失败。
-if sudo service docker start >/dev/null 2>&1; then
-  docker compose -p devassist pull db
+# shellcheck source=scripts/cloud-agent-docker.sh
+source "$root/scripts/cloud-agent-docker.sh"
+if cloud_agent_start_docker; then
+  echo "cloud-agent: caching postgres image"
+  if ! "${DOCKER[@]}" compose -p devassist pull db; then
+    echo "cloud-agent: postgres pull failed; start will retry"
+  fi
+else
+  echo "cloud-agent: docker unavailable during install; start will pull postgres"
+  cloud_agent_docker_log_tail
 fi

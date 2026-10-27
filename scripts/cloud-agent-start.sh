@@ -5,14 +5,14 @@ set -euo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$root"
 
-sudo service docker start
-for _ in $(seq 1 30); do
-  if docker info >/dev/null 2>&1; then
-    break
-  fi
-  sleep 1
-done
-docker info >/dev/null
+# shellcheck source=scripts/cloud-agent-docker.sh
+source "$root/scripts/cloud-agent-docker.sh"
+if ! cloud_agent_start_docker; then
+  echo "cloud-agent: docker did not become ready" >&2
+  cloud_agent_docker_log_tail >&2
+  exit 1
+fi
 
-docker compose -p devassist up -d --wait db
+"${DOCKER[@]}" compose -p devassist pull db
+"${DOCKER[@]}" compose -p devassist up -d --wait db
 (cd backend && uv run --frozen bash scripts/prestart.sh)
