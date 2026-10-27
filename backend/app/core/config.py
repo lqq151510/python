@@ -61,6 +61,7 @@ class Settings(BaseSettings):
     CODE_MAX_OUTPUT_TOKENS: int = Field(default=4096, gt=0, le=4096)
     CODE_TIMEOUT_SECONDS: float = Field(default=60, gt=0, le=120)
     CODE_WORKSPACE_DIR: Path = DEFAULT_CODE_WORKSPACE_DIR
+    GITHUB_TOKEN: SecretStr | None = None
 
     # 本地 AIGC 视频生成（ComfyUI + MiniMax H3 MLX）。默认关闭：ComfyUI 要手动拉起，
     # 且单条 5 秒 864x480 在本机要跑约 12 分钟，必须串行执行。
