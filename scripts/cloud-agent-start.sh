@@ -5,6 +5,9 @@ set -euo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$root"
 
+bash scripts/ci-env.sh > .env
+printf '%s\n' 'VITE_API_URL=http://127.0.0.1:8000' > frontend/.env
+
 # shellcheck source=scripts/cloud-agent-docker.sh
 source "$root/scripts/cloud-agent-docker.sh"
 if ! cloud_agent_start_docker; then

@@ -63,6 +63,21 @@ cloud_agent_compose() {
   return 1
 }
 
+cloud_agent_stop_docker() {
+  if ! sudo docker info >/dev/null 2>&1; then
+    return 0
+  fi
+  sudo pkill -x dockerd >/dev/null 2>&1 || true
+  local attempt
+  for attempt in $(seq 1 20); do
+    if ! sudo docker info >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 1
+  done
+  return 1
+}
+
 cloud_agent_docker_log_tail() {
   if [[ -f /tmp/cloud-agent-docker.log ]]; then
     tail -n 20 /tmp/cloud-agent-docker.log
