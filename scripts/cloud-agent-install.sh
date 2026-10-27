@@ -23,3 +23,8 @@ fi
 bash scripts/ci-env.sh > .env
 uv sync --frozen --all-groups --python 3.14
 bun install --frozen-lockfile
+
+# 把数据库镜像放进构建快照。Docker 不可用时跳过，不让依赖安装失败。
+if sudo service docker start >/dev/null 2>&1; then
+  docker compose -p devassist pull db
+fi
