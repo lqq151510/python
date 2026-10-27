@@ -37,13 +37,13 @@ Milvus 提供应用向量检索，Chroma 用于同模型同资料的本地对照
 
 ## 编程工作台与模型配置
 
-默认复用已有 DeepSeek Chat Completions 配置。要为编程模式换用其他服务，在根目录 `.env` 设置 `CODE_API_FORMAT`、`CODE_API_KEY`、`CODE_BASE_URL` 和 `CODE_MODEL`；配置格式见 `.env.example`。Responses 使用 `input`/`output`，Anthropic 使用 Messages 的 `system`/`messages`，Gemini 使用 `contents`/`systemInstruction`。项目仅支持这些文本生成接口，不启用模型侧工具。
+默认在三项代码模型配置都为空时，复用已有 DeepSeek Chat Completions 配置。要换服务，在根目录 `.env` 设置 `CODE_API_FORMAT`、`CODE_BASE_URL` 和 `CODE_MODEL`；第三方服务再设置 `CODE_API_KEY`。配置示例见 `.env.example`。本地 Ollama 使用 `openai_chat_completions` 和 `http://127.0.0.1:11434/v1`，密钥可以留空。第三方 OpenAI 兼容服务同样用这个格式，但必须在 `.env` 填写自己的密钥。Responses、Anthropic Messages 和 Gemini 仍然可用。项目只调用文本生成接口，不启用模型侧工具。
 
 编程工作区只按当前登录账号读写应用维护的目录，初始文件来自用户上传的 UTF-8 代码或文本文档。上传上限为每个文件 512 KiB、每账号 50 个文件/4 MiB；每次模型请求最多读取 20 个勾选文件、总计 64 KiB。候选改动写入前需经过权限检查和人工确认。完整权限仅涵盖应用沙箱；本版本没有终端命令执行能力，也不会读取用户主机上的项目目录。
 
 | `CODE_API_FORMAT` | 服务端请求格式 | 说明 |
 |---|---|---|
-| `openai_chat_completions` | `/v1/chat/completions` | 默认兼容格式；未填独立密钥时复用 `DEEPSEEK_*` |
+| `openai_chat_completions` | `/v1/chat/completions` | 默认兼容格式。三项都空时复用 `DEEPSEEK_*`；本机 Ollama 可只填地址和模型名；第三方必须另填 `CODE_API_KEY` |
 | `openai_responses` | `/v1/responses` | 可设置 `CODE_BASE_URL=https://api.openai.com/v1` |
 | `anthropic_messages` | `/v1/messages` | 默认指向 Anthropic API |
 | `gemini_generate_content` | `/v1beta/models/{model}:generateContent` | 通过 `x-goog-api-key` 传入服务端密钥 |

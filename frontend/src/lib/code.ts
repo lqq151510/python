@@ -34,6 +34,8 @@ export interface CodeModelConfig {
   api_format: CodeApiFormat
   model: string | null
   configured: boolean
+  local: boolean
+  base_url_host: string | null
 }
 
 const security = [{ scheme: "bearer", type: "http" }] as const
@@ -63,6 +65,27 @@ export async function getCodeModelConfig(): Promise<CodeModelConfig> {
     url: "/api/v1/code/config",
     security: [...security],
     timeout: 15_000,
+    throwOnError: true,
+  })
+  return response.data
+}
+
+export async function importGithubRepository(repository: string): Promise<CodeWorkspace & {
+  imported: number
+  repository: string
+  branch: string
+}> {
+  const response = await client.request<
+    { 200: CodeWorkspace & { imported: number; repository: string; branch: string } },
+    unknown,
+    true
+  >({
+    method: "POST",
+    url: "/api/v1/code/workspace/github",
+    body: { repository },
+    headers: { "Content-Type": "application/json" },
+    security: [...security],
+    timeout: 60_000,
     throwOnError: true,
   })
   return response.data
@@ -100,6 +123,31 @@ export async function readCodeFile(path: string): Promise<string> {
     throwOnError: true,
   })
   return response.data.content
+}
+
+export async function saveCodeFile(path: string, content: string): Promise<CodeWorkspace> {
+  const response = await client.request<{ 200: CodeWorkspace }, unknown, true>({
+    method: "PUT",
+    url: "/api/v1/code/workspace/files",
+    body: { path, content },
+    headers: { "Content-Type": "application/json" },
+    security: [...security],
+    timeout: 30_000,
+    throwOnError: true,
+  })
+  return response.data
+}
+
+export async function deleteCodeFile(path: string): Promise<CodeWorkspace> {
+  const encodedPath = path.split("/").map(encodeURIComponent).join("/")
+  const response = await client.request<{ 200: CodeWorkspace }, unknown, true>({
+    method: "DELETE",
+    url: `/api/v1/code/workspace/files/${encodedPath}`,
+    security: [...security],
+    timeout: 15_000,
+    throwOnError: true,
+  })
+  return response.data
 }
 
 export async function generateCode(input: {

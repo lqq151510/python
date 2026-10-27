@@ -1050,7 +1050,9 @@
 .da-code-file-preview { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--border); }
 .da-code-file-preview h3 { min-width: 0; overflow-wrap: anywhere; font-size: 12px; font-weight: 600; }
 .da-code-file-preview .da-code-pane-heading > span { flex: 0 0 auto; color: var(--muted-foreground); font-size: 10px; }
-.da-code-file-preview pre, .da-code-edit pre { max-height: 240px; overflow: auto; margin-top: 10px; padding: 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--muted); color: var(--foreground); font: 11px/1.65 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre; }
+.da-code-file-preview pre, .da-code-edit pre, .da-code-editor { max-height: 240px; overflow: auto; margin-top: 10px; padding: 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--muted); color: var(--foreground); font: 11px/1.65 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre; }
+.da-code-editor { display: block; width: 100%; min-height: 180px; resize: vertical; }
+.da-code-editor-actions { display: flex; gap: 8px; margin-top: 10px; }
 .da-code-section-title { align-items: center; }
 .da-code-section-title p { font-size: 13px; }
 .da-code-model-state { display: inline-flex; align-items: center; gap: 7px; flex: 0 0 auto; color: var(--muted-foreground); font-size: 11px; }
@@ -1060,7 +1062,10 @@
 .da-code-model-label { margin-block: 10px 18px; overflow-wrap: anywhere; }
 .da-code-field, .da-code-task { display: block; margin-top: 17px; }
 .da-code-field > span, .da-code-task > label { display: flex; align-items: center; gap: 7px; margin-bottom: 8px; font-size: 13px; font-weight: 600; }
-.da-code-field textarea, .da-code-task textarea { display: block; width: 100%; min-width: 0; resize: vertical; padding: 11px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--muted); color: var(--foreground); font-size: 13px; line-height: 1.6; }
+.da-code-field textarea, .da-code-task textarea, .da-code-github input { display: block; width: 100%; min-width: 0; resize: vertical; padding: 11px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--muted); color: var(--foreground); font-size: 13px; line-height: 1.6; }
+.da-code-github { display: flex; flex-direction: column; gap: 8px; margin: 12px 0; }
+.da-code-github label { font-size: 13px; font-weight: 600; }
+.da-code-github input { resize: none; }
 .da-code-field textarea::placeholder, .da-code-task textarea::placeholder { color: var(--muted-foreground); opacity: 1; }
 .da-code-hint { margin-top: 8px; color: var(--muted-foreground); font-size: 11px; line-height: 1.6; }
 .da-code-task-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin-top: 10px; }

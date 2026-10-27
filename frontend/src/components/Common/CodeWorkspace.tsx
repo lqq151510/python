@@ -20,6 +20,9 @@ import {
   getCodeModelConfig,
   getCodeWorkspace,
   readCodeFile,
+  saveCodeFile,
+  deleteCodeFile,
+  importGithubRepository,
   uploadCodeFiles,
   type CodeApiFormat,
   type CodePermission,
@@ -36,6 +39,41 @@ const apiFormatLabels: Record<CodeApiFormat, string> = {
 const supportedFiles =
   ".c,.cc,.cpp,.css,.go,.h,.hpp,.html,.java,.js,.jsx,.json,.md,.py,.rs,.scss,.sh,.sql,.svelte,.toml,.ts,.tsx,.txt,.vue,.yaml,.yml"
 
+function changedLinePreview(before: string | null | undefined, after: string) {
+  if (before == null) {
+    return after.split("\n").slice(0, 12).map((line) => `+ ${line}`).join("\n")
+  }
+  const previous = before.split("\n")
+  const next = after.split("\n")
+  const preview: string[] = []
+  const limit = Math.max(previous.length, next.length)
+  for (let index = 0; index < limit && preview.length < 24; index += 1) {
+    if (previous[index] === next[index]) continue
+    if (index < previous.length) preview.push(`- ${previous[index]}`)
+    if (index < next.length && preview.length < 24) preview.push(`+ ${next[index]}`)
+  }
+  return preview.join("\n") || "没有行级差异"
+}
+
+function lineChangeCounts(before: string, after: string) {
+  const previous = new Map<string, number>()
+  for (const line of before.split("\n")) {
+    previous.set(line, (previous.get(line) ?? 0) + 1)
+  }
+  let removed = before.split("\n").length
+  let added = 0
+  for (const line of after.split("\n")) {
+    const remaining = previous.get(line) ?? 0
+    if (remaining > 0) {
+      previous.set(line, remaining - 1)
+      removed -= 1
+    } else {
+      added += 1
+    }
+  }
+  return { added, removed }
+}
+
 export function CodeWorkspace() {
   const { user } = useAuth()
   const queryClient = useQueryClient()
@@ -46,6 +84,9 @@ export function CodeWorkspace() {
   const [approvedPaths, setApprovedPaths] = useState<string[]>([])
   const [selectedPaths, setSelectedPaths] = useState<string[]>([])
   const [selectedFile, setSelectedFile] = useState<CodeWorkspaceFile | null>(null)
+  const [draft, setDraft] = useState("")
+  const [newPath, setNewPath] = useState("")
+  const [githubRepository, setGithubRepository] = useState("")
   const [notice, setNotice] = useState("")
   const [errorNotice, setErrorNotice] = useState("")
   const fileInput = useRef<HTMLInputElement>(null)
@@ -66,6 +107,10 @@ export function CodeWorkspace() {
     queryFn: () => readCodeFile(selectedFile!.path),
     enabled: Boolean(selectedFile && user),
   })
+  useEffect(() => {
+    if (!selectedFile || fileContent.data === undefined) return
+    setDraft(fileContent.data)
+  }, [selectedFile, fileContent.data])
 
   const upload = useMutation({
     mutationFn: uploadCodeFiles,
@@ -83,6 +128,47 @@ export function CodeWorkspace() {
       setNotice(`已加入 ${files.length} 个文件，模型只会读取你勾选的附件。`)
       setErrorNotice("")
       if (result.files.length && !selectedFile) setSelectedFile(result.files[0])
+    },
+    onError: (error) => setErrorNotice(describeCodeError(error)),
+  })
+  const githubImport = useMutation({
+    mutationFn: importGithubRepository,
+    onSuccess: async (result) => {
+      await queryClient.invalidateQueries({ queryKey: ["code-workspace", user?.id] })
+      setSelectedPaths((current) => Array.from(new Set([
+        ...current,
+        ...result.files.map((file) => file.path),
+      ])).slice(0, 20))
+      setNotice(`已从 ${result.repository} 的 ${result.branch} 分支导入 ${result.imported} 个文本文件。`)
+      setErrorNotice("")
+      setGithubRepository("")
+    },
+    onError: (error) => setErrorNotice(describeCodeError(error)),
+  })
+  const saveFile = useMutation({
+    mutationFn: () => saveCodeFile(selectedFile?.path ?? "", draft),
+    onSuccess: async () => {
+      const path = selectedFile?.path
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["code-workspace", user?.id] }),
+        queryClient.invalidateQueries({ queryKey: ["code-workspace-file", user?.id, path] }),
+        queryClient.invalidateQueries({ queryKey: ["code-edit-baselines", user?.id] }),
+      ])
+      setNotice("已保存到当前账号的隔离工作区。")
+      setErrorNotice("")
+    },
+    onError: (error) => setErrorNotice(describeCodeError(error)),
+  })
+  const removeFile = useMutation({
+    mutationFn: () => deleteCodeFile(selectedFile?.path ?? ""),
+    onSuccess: async () => {
+      const path = selectedFile?.path
+      setSelectedFile(null)
+      setDraft("")
+      setSelectedPaths((current) => current.filter((item) => item !== path))
+      await queryClient.invalidateQueries({ queryKey: ["code-workspace", user?.id] })
+      setNotice("已从当前工作区删除该文件。")
+      setErrorNotice("")
     },
     onError: (error) => setErrorNotice(describeCodeError(error)),
   })
@@ -170,10 +256,33 @@ export function CodeWorkspace() {
     })
   }
 
-  const codeBusy = upload.isPending || generation.isPending || apply.isPending
+  const codeBusy = upload.isPending || githubImport.isPending || saveFile.isPending || removeFile.isPending || generation.isPending || apply.isPending
   const result = generation.data
+  const baselines = useQuery({
+    queryKey: ["code-edit-baselines", user?.id, result?.request_id],
+    queryFn: async () => {
+      const known = new Set(workspace.data?.files.map((file) => file.path) ?? [])
+      const entries = await Promise.all(
+        (result?.edits ?? []).map(async (edit) => {
+          if (!known.has(edit.path)) return [edit.path, null] as const
+          try {
+            return [edit.path, await readCodeFile(edit.path)] as const
+          } catch {
+            return [edit.path, null] as const
+          }
+        }),
+      )
+      return Object.fromEntries(entries)
+    },
+    enabled: Boolean(user && result && result.edits.length > 0),
+  })
   const modelLabel = modelConfig.data
-    ? `${apiFormatLabels[modelConfig.data.api_format]}${modelConfig.data.model ? ` · ${modelConfig.data.model}` : ""}`
+    ? [
+        apiFormatLabels[modelConfig.data.api_format],
+        modelConfig.data.model,
+        modelConfig.data.base_url_host ? `主机 ${modelConfig.data.base_url_host}` : null,
+        modelConfig.data.local ? "本机服务" : null,
+      ].filter(Boolean).join(" · ")
     : "正在读取模型配置…"
 
   return (
@@ -182,7 +291,7 @@ export function CodeWorkspace() {
         <div className="da-code-pane-heading">
           <div>
             <h2><FileCode2 size={19} aria-hidden="true" /> 隔离工作区</h2>
-            <p>仅保存本账号上传或确认写入的文本文件</p>
+            <p>仅保存本账号上传、从公开 GitHub 仓库导入或确认写入的文本文件</p>
           </div>
           <button
             type="button"
@@ -202,8 +311,44 @@ export function CodeWorkspace() {
             onChange={(event) => void handleUpload(event)}
           />
         </div>
+        <form
+          className="da-code-github"
+          onSubmit={(event) => {
+            event.preventDefault()
+            const repository = githubRepository.trim()
+            if (!repository) {
+              setErrorNotice("请填写 GitHub 仓库地址。")
+              return
+            }
+            setErrorNotice("")
+            githubImport.mutate(repository)
+          }}
+        >
+          <label htmlFor="da-github-repository">公开 GitHub 仓库</label>
+          <input
+            id="da-github-repository"
+            value={githubRepository}
+            placeholder="https://github.com/owner/repo"
+            disabled={codeBusy}
+            onChange={(event) => setGithubRepository(event.target.value)}
+          />
+          <button type="submit" className="da-secondary" disabled={codeBusy}>
+            {githubImport.isPending ? <LoaderCircle className="animate-spin" size={17} /> : null}
+            导入仓库
+          </button>
+        </form>
         <div className="da-code-file-meta">
           {workspace.data?.files.length ?? 0} 个文件 · {Math.ceil((workspace.data?.total_bytes ?? 0) / 1024)} KiB / 4096 KiB
+          {workspace.data && workspace.data.files.length > 0 && (
+            <span>
+              <button type="button" className="da-text-button" disabled={codeBusy} onClick={() => setSelectedPaths(workspace.data.files.slice(0, 20).map((file) => file.path))}>
+                勾选前 20 个
+              </button>
+              <button type="button" className="da-text-button" disabled={codeBusy} onClick={() => setSelectedPaths([])}>
+                取消勾选
+              </button>
+            </span>
+          )}
         </div>
         {workspace.isLoading && <p className="da-code-muted">正在读取沙箱…</p>}
         {workspace.isError && <p role="alert" className="da-inline-error">无法读取隔离工作区。</p>}
@@ -238,16 +383,60 @@ export function CodeWorkspace() {
           ))}
         </div>
         {selectedFile && (
-          <section className="da-code-file-preview" aria-label={`${selectedFile.path} 文件预览`}>
+          <section className="da-code-file-preview" aria-label={`${selectedFile.path} 编辑器`}>
             <div className="da-code-pane-heading">
               <h3>{selectedFile.path}</h3>
-              <span>只读预览</span>
+              <span>{draft !== fileContent.data ? "未保存" : "已打开"}</span>
             </div>
             {fileContent.isLoading ? <p className="da-code-muted">正在打开文件…</p> : (
-              <pre>{fileContent.data ?? "无法读取文件内容。"}</pre>
+              <textarea
+                aria-label={`${selectedFile.path} 的内容`}
+                className="da-code-editor"
+                value={draft}
+                spellCheck={false}
+                disabled={codeBusy}
+                onChange={(event) => setDraft(event.target.value)}
+              />
             )}
+            <div className="da-code-editor-actions">
+              <button type="button" className="da-primary" disabled={codeBusy || !selectedFile || draft === fileContent.data} onClick={() => saveFile.mutate()}>
+                保存文件
+              </button>
+              <button type="button" className="da-secondary" disabled={codeBusy || !selectedFile} onClick={() => removeFile.mutate()}>
+                删除文件
+              </button>
+            </div>
           </section>
         )}
+        <form
+          className="da-code-github"
+          onSubmit={(event) => {
+            event.preventDefault()
+            const path = newPath.trim()
+            if (!path) {
+              setErrorNotice("请填写新文件路径，例如 src/app.py。")
+              return
+            }
+            setErrorNotice("")
+            saveCodeFile(path, "").then(async (result) => {
+              await queryClient.invalidateQueries({ queryKey: ["code-workspace", user?.id] })
+              const created = result.files.find((file) => file.path === path)
+              if (created) setSelectedFile(created)
+              setNewPath("")
+              setNotice("已在当前工作区新建空文件。")
+            }).catch((error: unknown) => setErrorNotice(describeCodeError(error)))
+          }}
+        >
+          <label htmlFor="da-new-file">新建文件</label>
+          <input
+            id="da-new-file"
+            value={newPath}
+            placeholder="src/app.py"
+            disabled={codeBusy}
+            onChange={(event) => setNewPath(event.target.value)}
+          />
+          <button type="submit" className="da-secondary" disabled={codeBusy}>新建</button>
+        </form>
       </aside>
 
       <section className="da-code-session">
@@ -315,23 +504,51 @@ export function CodeWorkspace() {
                 按此计划生成改动预览
               </button>
             )}
-            {result.edits.map((edit) => (
-              <article className="da-code-edit" key={edit.path}>
-                <label>
-                  <input
-                    type="checkbox"
-                    checked={approvedPaths.includes(edit.path)}
-                    disabled={permission === "read_only" || codeBusy}
-                    onChange={(event) => setApprovedPaths((current) => event.target.checked
-                      ? Array.from(new Set([...current, edit.path]))
-                      : current.filter((path) => path !== edit.path))}
-                  />
-                  <strong>{edit.path}</strong>
-                  <small>新内容预览</small>
-                </label>
-                <pre>{edit.content}</pre>
-              </article>
-            ))}
+            {result.edits.map((edit) => {
+              const before = baselines.data?.[edit.path]
+              const counts = before == null ? null : lineChangeCounts(before, edit.content)
+              const changeLabel = counts == null
+                ? "新文件"
+                : counts.added === 0 && counts.removed === 0
+                  ? "与当前文件相同"
+                  : `约 +${counts.added} 行 / -${counts.removed} 行`
+              return (
+                <article className="da-code-edit" key={edit.path}>
+                  <label>
+                    <input
+                      type="checkbox"
+                      checked={approvedPaths.includes(edit.path)}
+                      disabled={permission === "read_only" || codeBusy}
+                      onChange={(event) => setApprovedPaths((current) => event.target.checked
+                        ? Array.from(new Set([...current, edit.path]))
+                        : current.filter((path) => path !== edit.path))}
+                    />
+                    <strong>{edit.path}</strong>
+                    <small>{changeLabel}</small>
+                  </label>
+                  <button
+                    type="button"
+                    className="da-text-button"
+                    onClick={() => {
+                      void navigator.clipboard.writeText(edit.content).then(
+                        () => {
+                          setNotice(`已复制 ${edit.path}。`)
+                          setErrorNotice("")
+                        },
+                        () => setErrorNotice("复制失败，请手动选择代码。"),
+                      )
+                    }}
+                  >
+                    复制候选代码
+                  </button>
+                  <pre className="da-code-diff">{changedLinePreview(before, edit.content)}</pre>
+                  <details>
+                    <summary>完整候选内容</summary>
+                    <pre>{edit.content}</pre>
+                  </details>
+                </article>
+              )
+            })}
             {result.edits.length > 0 && (
               <div className="da-code-apply-box">
                 {permission === "read_only" ? (
@@ -385,15 +602,16 @@ export function CodeWorkspace() {
           )}
         </section>
         <section className="da-code-boundary">
-          <h2>执行边界</h2>
+          <h2>接入模型</h2>
           <ul>
-            <li>仅读取你上传并勾选的文件。</li>
-            <li>每个文件不超过 512 KiB；沙箱总量 4 MiB。</li>
-            <li>模型服务地址和密钥由服务端环境变量配置，不会下发到浏览器。</li>
-            <li>模型输出不会自动执行；写入前必须确认。</li>
+            <li>只在项目根目录 `.env` 配置，改完后重启后端。这个页面不接收密钥，也只显示主机名。</li>
+            <li>本地 Ollama：`CODE_API_FORMAT=openai_chat_completions`，`CODE_BASE_URL=http://127.0.0.1:11434/v1`，`CODE_MODEL` 填本机已有模型名。`CODE_API_KEY` 可以留空。</li>
+            <li>第三方 OpenAI 兼容服务：同样用 `openai_chat_completions`，`CODE_BASE_URL` 填对方的 API 根地址，`CODE_MODEL` 填模型名，`CODE_API_KEY` 只写在本机 `.env`。</li>
+            <li>`openai_responses`、`anthropic_messages`、`gemini_generate_content` 仍然可用，都需要各自的真实密钥。</li>
+            <li>模型输出不会自动执行；写入沙箱前必须确认。</li>
           </ul>
           {!modelConfig.data?.configured && !modelConfig.isLoading && (
-            <p className="da-code-config-help">请在后端 `.env` 配置代码模型。密钥请勿填入此页面。</p>
+            <p className="da-code-config-help">当前还不能调用代码模型。请按上面的方式配置后重启后端。</p>
           )}
         </section>
       </aside>

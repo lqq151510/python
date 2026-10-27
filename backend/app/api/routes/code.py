@@ -11,10 +11,15 @@ from app.code_agent import (
     CodeGenerateResponse,
     apply_workspace_edits,
     generate_code,
+    GithubImportRequest,
     get_model_config,
+    import_github_repository,
     list_workspace,
     read_workspace_file,
+    save_workspace_file,
+    delete_workspace_file,
     store_workspace_uploads,
+    WorkspaceFileWrite,
 )
 
 router = APIRouter(prefix="/code", tags=["code"])
@@ -52,6 +57,28 @@ async def read_code_workspace_file(
         _raise_api_error(request, exc)
 
 
+@router.put("/workspace/files")
+async def write_code_workspace_file(
+    request: Request, current_user: CurrentUser, body: WorkspaceFileWrite
+):
+    try:
+        return await run_in_threadpool(
+            save_workspace_file, current_user.id, body.path, body.content
+        )
+    except CodeAgentError as exc:
+        _raise_api_error(request, exc)
+
+
+@router.delete("/workspace/files/{file_path:path}")
+async def delete_code_workspace_file(
+    request: Request, current_user: CurrentUser, file_path: str
+):
+    try:
+        return await run_in_threadpool(delete_workspace_file, current_user.id, file_path)
+    except CodeAgentError as exc:
+        _raise_api_error(request, exc)
+
+
 @router.post("/workspace/files")
 async def upload_code_workspace_files(
     request: Request,
@@ -69,6 +96,16 @@ async def upload_code_workspace_files(
     finally:
         for file in files:
             await file.close()
+
+
+@router.post("/workspace/github")
+async def import_public_github_repository(
+    request: Request, current_user: CurrentUser, body: GithubImportRequest
+):
+    try:
+        return await import_github_repository(current_user.id, body.repository)
+    except CodeAgentError as exc:
+        _raise_api_error(request, exc)
 
 
 @router.post("/generate", response_model=CodeGenerateResponse)
