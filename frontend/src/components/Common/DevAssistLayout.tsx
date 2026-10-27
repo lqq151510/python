@@ -8,6 +8,7 @@ import {
   Image as ImageIcon,
   LogOut,
   MessageSquare,
+  NotebookPen,
   Settings,
   Sun,
   UserRound,
@@ -58,6 +59,13 @@ export function DevAssistLayout({ children }: { children: ReactNode }) {
           >
             <Bot size={22} aria-hidden="true" />
             多轮 Agent
+          </Link>
+          <Link
+            to="/notes"
+            aria-current={path === "/notes" ? "page" : undefined}
+          >
+            <NotebookPen size={22} aria-hidden="true" />
+            学习笔记
           </Link>
           <Link
             to="/learning"
@@ -127,7 +135,9 @@ export function DevAssistHeader({
   const Icon = title
     ? title.includes("图片")
       ? ImageIcon
-      : Bot
+      : title.includes("笔记")
+        ? NotebookPen
+        : Bot
     : aigc
       ? Clapperboard
       : knowledge
