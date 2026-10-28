@@ -10,6 +10,16 @@ export default defineConfig({
     outDir: "../backend/app/frontend",
     emptyOutDir: true,
   },
+  server: {
+    watch: {
+      ignored: [
+        "**/playwright-report/**",
+        "**/test-results/**",
+        "**/blob-report/**",
+        "**/playwright/.auth/**",
+      ],
+    },
+  },
   resolve: {
     alias: {
       "@": path.resolve(import.meta.dirname, "./src"),

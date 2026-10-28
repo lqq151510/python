@@ -26,6 +26,7 @@ function TasksPage() {
   const [notice, setNotice] = useState("")
   const [showDone, setShowDone] = useState(false)
   const [keyword, setKeyword] = useState("")
+  const [retrying, setRetrying] = useState(false)
   const tasks = useQuery({
     queryKey: ["tasks", user?.id],
     queryFn: listStudyTasks,
@@ -60,8 +61,15 @@ function TasksPage() {
 
   function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
+    if (save.isPending) return
     setNotice("")
     save.mutate({ title, detail })
+  }
+
+  function onRetry() {
+    if (retrying || tasks.isFetching) return
+    setRetrying(true)
+    void tasks.refetch().finally(() => setRetrying(false))
   }
 
   const needle = keyword.trim().toLowerCase()
@@ -112,12 +120,37 @@ function TasksPage() {
           onChange={(event) => setKeyword(event.target.value)}
         />
       </label>
-      {tasks.isError ? <p role="alert">复习清单读取失败，请检查连接后重试。</p> : null}
+      {tasks.isPending && !retrying ? (
+        <p className="da-empty" role="status">
+          正在读取复习清单…
+        </p>
+      ) : null}
+      {tasks.isError || retrying ? (
+        <div className="da-inline-alert" role="alert">
+          <p>复习清单读取失败，请检查连接。</p>
+          <button
+            type="button"
+            className="da-secondary mt-3"
+            disabled={retrying || tasks.isFetching}
+            onClick={onRetry}
+          >
+            {retrying ? "正在重试…" : "重新加载"}
+          </button>
+        </div>
+      ) : null}
       <div className="da-task-switch">
-        <button type="button" aria-pressed={!showDone} onClick={() => setShowDone(false)}>
+        <button
+          type="button"
+          aria-pressed={!showDone}
+          onClick={() => setShowDone(false)}
+        >
           未完成
         </button>
-        <button type="button" aria-pressed={showDone} onClick={() => setShowDone(true)}>
+        <button
+          type="button"
+          aria-pressed={showDone}
+          onClick={() => setShowDone(true)}
+        >
           已完成
         </button>
       </div>
@@ -148,7 +181,7 @@ function TasksPage() {
         ))}
       </ul>
       {tasks.data && visible.length === 0 ? (
-        <p>
+        <p className="da-empty">
           {needle
             ? "没有匹配的复习项。"
             : showDone

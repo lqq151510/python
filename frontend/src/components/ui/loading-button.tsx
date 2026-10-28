@@ -54,11 +54,14 @@ function LoadingButton({
   const Comp = asChild ? Slot : "button"
   return (
     <Comp
+      aria-busy={loading || undefined}
       className={cn(buttonVariants({ variant, size, className }))}
       disabled={loading || disabled}
       {...props}
     >
-      {loading && <Loader2 className="mr-2 h-5 w-5 animate-spin" />}
+      {loading && (
+        <Loader2 aria-hidden="true" className="mr-2 h-5 w-5 animate-spin" />
+      )}
       <Slottable>{children}</Slottable>
     </Comp>
   )

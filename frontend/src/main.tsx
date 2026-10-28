@@ -41,7 +41,23 @@ const queryClient = new QueryClient({
   }),
 })
 
-const router = createRouter({ routeTree })
+function RoutePending() {
+  return (
+    <div
+      className="flex min-h-[40svh] items-center justify-center text-sm text-muted-foreground"
+      role="status"
+      aria-live="polite"
+    >
+      正在加载页面…
+    </div>
+  )
+}
+
+const router = createRouter({
+  routeTree,
+  defaultPendingComponent: RoutePending,
+  defaultPendingMs: 200,
+})
 declare module "@tanstack/react-router" {
   interface Register {
     router: typeof router

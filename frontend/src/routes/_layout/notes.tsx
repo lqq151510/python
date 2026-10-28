@@ -25,6 +25,7 @@ function NotesPage() {
   const [body, setBody] = useState("")
   const [keyword, setKeyword] = useState("")
   const [notice, setNotice] = useState("")
+  const [retrying, setRetrying] = useState(false)
   const notes = useQuery({
     queryKey: ["notes", user?.id],
     queryFn: listNotes,
@@ -67,8 +68,15 @@ function NotesPage() {
 
   function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
+    if (save.isPending) return
     setNotice("")
     save.mutate({ title, body })
+  }
+
+  function onRetry() {
+    if (retrying || notes.isFetching) return
+    setRetrying(true)
+    void notes.refetch().finally(() => setRetrying(false))
   }
 
   const needle = keyword.trim().toLowerCase()
@@ -119,7 +127,24 @@ function NotesPage() {
           onChange={(event) => setKeyword(event.target.value)}
         />
       </label>
-      {notes.isError ? <p role="alert">笔记读取失败，请检查连接后重试。</p> : null}
+      {notes.isPending && !retrying ? (
+        <p className="da-empty" role="status">
+          正在读取笔记…
+        </p>
+      ) : null}
+      {notes.isError || retrying ? (
+        <div className="da-inline-alert" role="alert">
+          <p>笔记读取失败，请检查连接。</p>
+          <button
+            type="button"
+            className="da-secondary mt-3"
+            disabled={retrying || notes.isFetching}
+            onClick={onRetry}
+          >
+            {retrying ? "正在重试…" : "重新加载"}
+          </button>
+        </div>
+      ) : null}
       <ul className="da-note-list">
         {visibleNotes.map((note) => (
           <NoteItem
@@ -135,10 +160,10 @@ function NotesPage() {
         ))}
       </ul>
       {notes.data?.count === 0 ? (
-        <p>还没有笔记。先写下一句今天要记住的结论。</p>
+        <p className="da-empty">还没有笔记。先写下一句今天要记住的结论。</p>
       ) : null}
       {notes.data && notes.data.count > 0 && visibleNotes.length === 0 ? (
-        <p>没有匹配的笔记。</p>
+        <p className="da-empty">没有匹配的笔记。</p>
       ) : null}
     </section>
   )
@@ -170,13 +195,16 @@ function NoteItem({
           onChange={(event) => setNextTitle(event.target.value)}
         />
       </label>
-      <textarea
-        aria-label={`${title}的内容`}
-        value={text}
-        maxLength={4000}
-        rows={4}
-        onChange={(event) => setText(event.target.value)}
-      />
+      <label>
+        内容
+        <textarea
+          aria-label={`${title}的内容`}
+          value={text}
+          maxLength={4000}
+          rows={4}
+          onChange={(event) => setText(event.target.value)}
+        />
+      </label>
       <div>
         <LoadingButton
           type="button"
