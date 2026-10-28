@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import Any, Literal, Self
 
 import httpx
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator
 
 from app.core.config import settings
 
@@ -85,7 +85,7 @@ class AigcError(Exception):
         super().__init__(code)
 
 
-def _clip_error(message: str) -> str:
+def _clip_error(message: object) -> str:
     text = " ".join(str(message).split())
     if len(text) > MAX_ERROR_CHARS:
         return text[: MAX_ERROR_CHARS - 1] + "…"
@@ -100,7 +100,9 @@ class VideoParams(BaseModel):
     width: int = Field(default=480, ge=MIN_SIDE, le=MAX_WIDTH)
     height: int = Field(default=288, ge=MIN_SIDE, le=MAX_HEIGHT)
     duration_seconds: float = Field(default=5.0, ge=MIN_DURATION, le=MAX_DURATION)
-    seed: int = Field(default_factory=lambda: random.randint(0, MAX_SEED), ge=0, le=MAX_SEED)
+    seed: int = Field(
+        default_factory=lambda: random.randint(0, MAX_SEED), ge=0, le=MAX_SEED
+    )
     model_profile: Literal[
         "4-bit",
         "8-bit",
@@ -120,7 +122,7 @@ class VideoParams(BaseModel):
 
     @field_validator("width", "height")
     @classmethod
-    def _multiple_of_step(cls, value: int, info) -> int:
+    def _multiple_of_step(cls, value: int, info: ValidationInfo) -> int:
         if value % SIDE_STEP:
             raise ValueError(
                 f"{info.field_name} 必须是 {SIDE_STEP} 的倍数，收到 {value}"
@@ -233,7 +235,7 @@ def history_status(entry: dict[str, Any]) -> str:
     status = entry.get("status")
     if isinstance(status, dict):
         status_str = status.get("status_str")
-        if status_str in ("success", "error"):
+        if isinstance(status_str, str) and status_str in ("success", "error"):
             return status_str
         if status.get("completed"):
             return "success"
@@ -340,7 +342,9 @@ class ComfyClient:
         try:
             data = response.json()
         except ValueError as exc:
-            raise AigcError(502, "aigc_comfy_bad_response", "ComfyUI 返回的不是 JSON") from exc
+            raise AigcError(
+                502, "aigc_comfy_bad_response", "ComfyUI 返回的不是 JSON"
+            ) from exc
         return data if isinstance(data, dict) else {}
 
     def submit(self, graph: dict[str, dict[str, Any]]) -> str:
@@ -363,17 +367,19 @@ class ComfyClient:
         try:
             data = response.json()
         except ValueError as exc:
-            raise AigcError(502, "aigc_comfy_bad_response", "ComfyUI 返回的不是 JSON") from exc
+            raise AigcError(
+                502, "aigc_comfy_bad_response", "ComfyUI 返回的不是 JSON"
+            ) from exc
         prompt_id = data.get("prompt_id") if isinstance(data, dict) else None
         if not isinstance(prompt_id, str) or not prompt_id:
             raise AigcError(
-                502, "aigc_comfy_rejected", f"ComfyUI 没有返回 prompt_id：{_clip_error(data)}"
+                502,
+                "aigc_comfy_rejected",
+                f"ComfyUI 没有返回 prompt_id：{_clip_error(data)}",
             )
         return prompt_id
 
-    def upload_image(
-        self, *, filename: str, content: bytes, content_type: str
-    ) -> str:
+    def upload_image(self, *, filename: str, content: bytes, content_type: str) -> str:
         """把首帧图上传到 ComfyUI 的 input 目录，返回 LoadImage 可用的名字。"""
         files = {"image": (filename, content, content_type)}
         data = {"overwrite": "true", "type": "input"}
@@ -396,7 +402,9 @@ class ComfyClient:
         try:
             payload = response.json()
         except ValueError as exc:
-            raise AigcError(502, "aigc_comfy_bad_response", "上传接口返回的不是 JSON") from exc
+            raise AigcError(
+                502, "aigc_comfy_bad_response", "上传接口返回的不是 JSON"
+            ) from exc
         name = payload.get("name") if isinstance(payload, dict) else None
         subfolder = payload.get("subfolder") if isinstance(payload, dict) else None
         if not isinstance(name, str) or not name:
@@ -419,7 +427,9 @@ class ComfyClient:
         try:
             data = response.json()
         except ValueError as exc:
-            raise AigcError(502, "aigc_comfy_bad_response", "状态接口返回的不是 JSON") from exc
+            raise AigcError(
+                502, "aigc_comfy_bad_response", "状态接口返回的不是 JSON"
+            ) from exc
         return data if isinstance(data, dict) else {}
 
     def queue(self) -> dict[str, Any]:

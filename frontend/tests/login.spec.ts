@@ -45,9 +45,7 @@ test("Log in with valid email and password ", async ({ page }) => {
 
   await page.waitForURL("/")
 
-  await expect(
-    page.getByText("Welcome back, nice to see you again!"),
-  ).toBeVisible()
+  await expect(page.getByRole("heading", { name: "应用首页" })).toBeVisible()
 })
 
 test("Log in with invalid email", async ({ page }) => {
@@ -77,12 +75,10 @@ test("Successful log out", async ({ page }) => {
 
   await page.waitForURL("/")
 
-  await expect(
-    page.getByText("Welcome back, nice to see you again!"),
-  ).toBeVisible()
+  await expect(page.getByRole("heading", { name: "应用首页" })).toBeVisible()
 
-  await page.getByTestId("user-menu").click()
-  await page.getByRole("menuitem", { name: "Log out" }).click()
+  await page.getByLabel("我的账号菜单").click()
+  await page.getByRole("button", { name: "退出登录", exact: true }).click()
   await page.waitForURL("/login")
 })
 
@@ -94,12 +90,10 @@ test("Logged-out user cannot access protected routes", async ({ page }) => {
 
   await page.waitForURL("/")
 
-  await expect(
-    page.getByText("Welcome back, nice to see you again!"),
-  ).toBeVisible()
+  await expect(page.getByRole("heading", { name: "应用首页" })).toBeVisible()
 
-  await page.getByTestId("user-menu").click()
-  await page.getByRole("menuitem", { name: "Log out" }).click()
+  await page.getByLabel("我的账号菜单").click()
+  await page.getByRole("button", { name: "退出登录", exact: true }).click()
   await page.waitForURL("/login")
 
   await page.goto("/settings")

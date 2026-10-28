@@ -93,7 +93,7 @@ test.describe("Admin user management", () => {
     await page.getByRole("button", { name: "Save" }).click()
 
     await expect(page.getByText("User updated successfully")).toBeVisible()
-    await expect(page.getByText(updatedName)).toBeVisible()
+    await expect(userRow.getByText(updatedName)).toBeVisible()
   })
 
   test("Delete a user successfully", async ({ page }) => {

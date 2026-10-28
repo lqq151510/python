@@ -4,20 +4,18 @@ import { createUser } from "./utils/privateApi.ts"
 import { randomEmail, randomPassword } from "./utils/random"
 import { logInUser, logOutUser } from "./utils/user"
 
-const tabs = ["My profile", "Password", "Danger zone"]
+const sections = ["账号资料", "修改密码"]
 
-test("My profile tab is active by default", async ({ page }) => {
+test("Account profile is visible by default", async ({ page }) => {
   await page.goto("/settings")
-  await expect(page.getByRole("tab", { name: "My profile" })).toHaveAttribute(
-    "aria-selected",
-    "true",
-  )
+  await expect(page.getByRole("heading", { name: "个人中心" })).toBeVisible()
+  await expect(page.getByLabel("显示名", { exact: true })).toBeVisible()
 })
 
-test("All tabs are visible", async ({ page }) => {
+test("All account sections are visible", async ({ page }) => {
   await page.goto("/settings")
-  for (const tab of tabs) {
-    await expect(page.getByRole("tab", { name: tab })).toBeVisible()
+  for (const section of sections) {
+    await expect(page.getByRole("heading", { name: section })).toBeVisible()
   }
 })
 
@@ -35,30 +33,35 @@ test.describe("Edit user profile", () => {
   test.beforeEach(async ({ page }) => {
     await logInUser(page, email, password)
     await page.goto("/settings")
-    await page.getByRole("tab", { name: "My profile" }).click()
   })
 
   test("Edit user name with a valid name", async ({ page }) => {
     const updatedName = "Test User 2"
 
-    await page.getByRole("button", { name: "Edit" }).click()
-    await page.getByLabel("Full name").fill(updatedName)
-    await page.getByRole("button", { name: "Save" }).click()
+    await page.getByLabel("显示名", { exact: true }).fill(updatedName)
+    await page.getByRole("button", { name: "保存资料" }).click()
 
-    await expect(page.getByText("User updated successfully")).toBeVisible()
+    await expect(page.getByText("资料已更新。")).toBeVisible()
+    await expect(page.getByLabel("显示名", { exact: true })).toHaveValue(
+      updatedName,
+    )
     await expect(
-      page.locator("form").getByText(updatedName, { exact: true }),
+      page.locator(".da-profile-grid").first().getByText(updatedName),
     ).toBeVisible()
   })
 
   test("Edit user email with an invalid email shows error", async ({
     page,
   }) => {
-    await page.getByRole("button", { name: "Edit" }).click()
-    await page.getByLabel("Email").fill("")
-    await page.locator("body").click()
+    const input = page.getByLabel("邮箱", { exact: true })
+    await input.fill("")
+    await page.getByRole("button", { name: "保存资料" }).click()
 
-    await expect(page.getByText("Invalid email address")).toBeVisible()
+    expect(
+      await input.evaluate((element) =>
+        (element as HTMLInputElement).checkValidity(),
+      ),
+    ).toBe(false)
   })
 })
 
@@ -73,54 +76,56 @@ test.describe("Edit user email", () => {
     await createUser({ email, password })
     await logInUser(page, email, password)
     await page.goto("/settings")
-    await page.getByRole("tab", { name: "My profile" }).click()
 
-    await page.getByRole("button", { name: "Edit" }).click()
-    await page.getByLabel("Email").fill(updatedEmail)
-    await page.getByRole("button", { name: "Save" }).click()
+    await page.getByLabel("邮箱", { exact: true }).fill(updatedEmail)
+    await page.getByRole("button", { name: "保存资料" }).click()
 
-    await expect(page.getByText("User updated successfully")).toBeVisible()
+    await expect(page.getByText("资料已更新。")).toBeVisible()
+    await expect(page.getByLabel("邮箱", { exact: true })).toHaveValue(
+      updatedEmail,
+    )
     await expect(
-      page.locator("form").getByText(updatedEmail, { exact: true }),
+      page
+        .locator(".da-profile-grid")
+        .first()
+        .getByText(updatedEmail, { exact: true }),
     ).toBeVisible()
   })
 })
 
-test.describe("Cancel edit actions", () => {
+test.describe("Unsaved edit actions", () => {
   test.use({ storageState: { cookies: [], origins: [] } })
 
-  test("Cancel edit action restores original name", async ({ page }) => {
+  test("Reload restores original name after unsaved changes", async ({
+    page,
+  }) => {
     const email = randomEmail()
     const password = randomPassword()
     const user = await createUser({ email, password })
 
     await logInUser(page, email, password)
     await page.goto("/settings")
-    await page.getByRole("tab", { name: "My profile" }).click()
-    await page.getByRole("button", { name: "Edit" }).click()
-    await page.getByLabel("Full name").fill("Test User")
-    await page.getByRole("button", { name: "Cancel" }).first().click()
+    await page.getByLabel("显示名", { exact: true }).fill("Test User 2")
+    await page.reload()
 
-    await expect(
-      page.locator("form").getByText(user.full_name as string, { exact: true }),
-    ).toBeVisible()
+    await expect(page.getByLabel("显示名", { exact: true })).toHaveValue(
+      user.full_name as string,
+    )
   })
 
-  test("Cancel edit action restores original email", async ({ page }) => {
+  test("Reload restores original email after unsaved changes", async ({
+    page,
+  }) => {
     const email = randomEmail()
     const password = randomPassword()
     await createUser({ email, password })
 
     await logInUser(page, email, password)
     await page.goto("/settings")
-    await page.getByRole("tab", { name: "My profile" }).click()
-    await page.getByRole("button", { name: "Edit" }).click()
-    await page.getByLabel("Email").fill(randomEmail())
-    await page.getByRole("button", { name: "Cancel" }).first().click()
+    await page.getByLabel("邮箱", { exact: true }).fill(randomEmail())
+    await page.reload()
 
-    await expect(
-      page.locator("form").getByText(email, { exact: true }),
-    ).toBeVisible()
+    await expect(page.getByLabel("邮箱", { exact: true })).toHaveValue(email)
   })
 })
 
@@ -136,13 +141,12 @@ test.describe("Change password", () => {
     await logInUser(page, email, password)
 
     await page.goto("/settings")
-    await page.getByRole("tab", { name: "Password" }).click()
-    await page.getByTestId("current-password-input").fill(password)
-    await page.getByTestId("new-password-input").fill(newPassword)
-    await page.getByTestId("confirm-password-input").fill(newPassword)
-    await page.getByRole("button", { name: "Update Password" }).click()
+    await page.getByLabel("当前密码", { exact: true }).fill(password)
+    await page.getByLabel("新密码", { exact: true }).fill(newPassword)
+    await page.getByLabel("确认新密码", { exact: true }).fill(newPassword)
+    await page.getByRole("button", { name: "更新密码" }).click()
 
-    await expect(page.getByText("Password updated successfully")).toBeVisible()
+    await expect(page.getByText("密码已更新。")).toBeVisible()
 
     await logOutUser(page)
     await logInUser(page, email, newPassword)
@@ -163,94 +167,84 @@ test.describe("Change password validation", () => {
   test.beforeEach(async ({ page }) => {
     await logInUser(page, email, password)
     await page.goto("/settings")
-    await page.getByRole("tab", { name: "Password" }).click()
   })
 
   test("Update password with weak passwords", async ({ page }) => {
     const weakPassword = "weak"
+    const input = page.getByLabel("新密码", { exact: true })
 
-    await page.getByTestId("current-password-input").fill(password)
-    await page.getByTestId("new-password-input").fill(weakPassword)
-    await page.getByTestId("confirm-password-input").fill(weakPassword)
-    await page.getByRole("button", { name: "Update Password" }).click()
+    await page.getByLabel("当前密码", { exact: true }).fill(password)
+    await input.fill(weakPassword)
+    await page.getByLabel("确认新密码", { exact: true }).fill(weakPassword)
+    await page.getByRole("button", { name: "更新密码" }).click()
 
-    await expect(
-      page.getByText("Password must be at least 8 characters"),
-    ).toBeVisible()
+    expect(
+      await input.evaluate((element) =>
+        (element as HTMLInputElement).checkValidity(),
+      ),
+    ).toBe(false)
   })
 
   test("New password and confirmation password do not match", async ({
     page,
   }) => {
-    await page.getByTestId("current-password-input").fill(password)
-    await page.getByTestId("new-password-input").fill(randomPassword())
-    await page.getByTestId("confirm-password-input").fill(randomPassword())
-    await page.getByRole("button", { name: "Update Password" }).click()
+    await page.getByLabel("当前密码", { exact: true }).fill(password)
+    await page.getByLabel("新密码", { exact: true }).fill(randomPassword())
+    await page.getByLabel("确认新密码", { exact: true }).fill(randomPassword())
+    await page.getByRole("button", { name: "更新密码" }).click()
 
-    await expect(page.getByText("The passwords don't match")).toBeVisible()
+    await expect(page.getByText("两次输入的新密码不一致。")).toBeVisible()
   })
 
   test("Current password and new password are the same", async ({ page }) => {
-    await page.getByTestId("current-password-input").fill(password)
-    await page.getByTestId("new-password-input").fill(password)
-    await page.getByTestId("confirm-password-input").fill(password)
-    await page.getByRole("button", { name: "Update Password" }).click()
+    await page.getByLabel("当前密码", { exact: true }).fill(password)
+    await page.getByLabel("新密码", { exact: true }).fill(password)
+    await page.getByLabel("确认新密码", { exact: true }).fill(password)
+    await page.getByRole("button", { name: "更新密码" }).click()
 
-    await expect(
-      page.getByText("New password cannot be the same as the current one"),
-    ).toBeVisible()
+    await expect(page.getByText("新密码不能和当前密码相同。")).toBeVisible()
   })
 })
 
 test("Appearance button is visible in sidebar", async ({ page }) => {
   await page.goto("/settings")
-  await expect(page.getByTestId("theme-button")).toBeVisible()
+  await expect(
+    page.getByRole("button", { name: /切换为(柔和|清爽)浅色/ }),
+  ).toBeVisible()
 })
 
-test("User can switch between theme modes", async ({ page }) => {
+test("User can switch between appearance modes", async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.removeItem("devassist-appearance")
+  })
   await page.goto("/settings")
 
-  await page.getByTestId("theme-button").click()
-  await page.getByTestId("dark-mode").click()
-  await expect(page.locator("html")).toHaveClass(/dark/)
+  await page.getByRole("button", { name: "切换为柔和浅色" }).click()
+  await expect(page.locator(".da-shell")).toHaveClass(/da-soft/)
+  await expect(
+    page.getByRole("button", { name: "切换为清爽浅色" }),
+  ).toHaveAttribute("aria-pressed", "true")
 
-  await expect(page.getByTestId("dark-mode")).not.toBeVisible()
-
-  await page.getByTestId("theme-button").click()
-  await page.getByTestId("light-mode").click()
-  await expect(page.locator("html")).toHaveClass(/light/)
+  await page.getByRole("button", { name: "切换为清爽浅色" }).click()
+  await expect(page.locator(".da-shell")).not.toHaveClass(/da-soft/)
+  await expect(
+    page.getByRole("button", { name: "切换为柔和浅色" }),
+  ).toHaveAttribute("aria-pressed", "false")
 })
 
-test("Selected mode is preserved across sessions", async ({ page }) => {
+test("Selected appearance is preserved across sessions", async ({ page }) => {
   await page.goto("/settings")
+  await page.evaluate(() => localStorage.removeItem("devassist-appearance"))
+  await page.reload()
 
-  await page.getByTestId("theme-button").click()
-  if (
-    await page.evaluate(() =>
-      document.documentElement.classList.contains("dark"),
-    )
-  ) {
-    await page.getByTestId("light-mode").click()
-    await page.getByTestId("theme-button").click()
-  }
-
-  const isLightMode = await page.evaluate(() =>
-    document.documentElement.classList.contains("light"),
-  )
-  expect(isLightMode).toBe(true)
-
-  await page.getByTestId("theme-button").click()
-  await page.getByTestId("dark-mode").click()
-  let isDarkMode = await page.evaluate(() =>
-    document.documentElement.classList.contains("dark"),
-  )
-  expect(isDarkMode).toBe(true)
+  await page.getByRole("button", { name: "切换为柔和浅色" }).click()
+  await expect(page.locator(".da-shell")).toHaveClass(/da-soft/)
+  expect(
+    await page.evaluate(() => localStorage.getItem("devassist-appearance")),
+  ).toBe("soft")
 
   await logOutUser(page)
   await logInUser(page, firstSuperuser, firstSuperuserPassword)
 
-  isDarkMode = await page.evaluate(() =>
-    document.documentElement.classList.contains("dark"),
-  )
-  expect(isDarkMode).toBe(true)
+  await expect(page.locator(".da-shell")).toHaveClass(/da-soft/)
 })

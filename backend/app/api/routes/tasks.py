@@ -22,7 +22,9 @@ def _clean(value: str) -> str:
     return value.strip()
 
 
-def _owned_task(session: SessionDep, owner_id: uuid.UUID, task_id: uuid.UUID) -> StudyTask:
+def _owned_task(
+    session: SessionDep, owner_id: uuid.UUID, task_id: uuid.UUID
+) -> StudyTask:
     task = session.get(StudyTask, task_id)
     if task is None or task.owner_id != owner_id:
         raise HTTPException(status_code=404, detail="复习项不存在")

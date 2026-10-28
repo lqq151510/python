@@ -6,7 +6,7 @@ from typing import Any
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, ValidationError
-from sqlmodel import Session, func, select
+from sqlmodel import Session, col, func, select
 from starlette.concurrency import run_in_threadpool
 
 from app import aigc, aigc_runner
@@ -65,7 +65,9 @@ class AigcConfig(BaseModel):
 
 
 def _error(status_code: int, code: str, message: str) -> HTTPException:
-    return HTTPException(status_code=status_code, detail={"code": code, "message": message})
+    return HTTPException(
+        status_code=status_code, detail={"code": code, "message": message}
+    )
 
 
 def _ensure_enabled() -> None:
@@ -92,7 +94,7 @@ def _active_job_count(session: Session, owner_id: uuid.UUID) -> int:
             select(func.count())
             .select_from(AigcJob)
             .where(AigcJob.owner_id == owner_id)
-            .where(AigcJob.status.in_(queued_like))
+            .where(col(AigcJob.status).in_(queued_like))
         ).one()
     )
 
@@ -197,7 +199,7 @@ def _create_job(
 
 
 @router.get("/config", response_model=AigcConfig)
-def read_aigc_config(current_user: CurrentUser, session: SessionDep):
+def read_aigc_config(current_user: CurrentUser, session: SessionDep) -> AigcConfig:
     """返回本机生成能力状态，供前端决定是否允许提交。"""
     comfy_reachable = False
     comfy_error: str | None = None
@@ -231,11 +233,13 @@ def read_aigc_config(current_user: CurrentUser, session: SessionDep):
 
 
 @router.get("/jobs", response_model=list[AigcJobSummary])
-def list_aigc_jobs(current_user: CurrentUser, session: SessionDep):
+def list_aigc_jobs(
+    current_user: CurrentUser, session: SessionDep
+) -> list[AigcJobSummary]:
     jobs = session.exec(
         select(AigcJob)
         .where(AigcJob.owner_id == current_user.id)
-        .order_by(AigcJob.created_at.desc())
+        .order_by(col(AigcJob.created_at).desc())
         .limit(LIST_LIMIT)
     ).all()
     return [_summary(job) for job in jobs]
@@ -244,7 +248,7 @@ def list_aigc_jobs(current_user: CurrentUser, session: SessionDep):
 @router.post("/jobs", response_model=AigcJobDetail, status_code=201)
 def create_aigc_job(
     current_user: CurrentUser, session: SessionDep, body: aigc.AigcJobCreate
-):
+) -> AigcJobDetail:
     """文生视频：提交即返回 job_id，真正的生成在后台串行队列里跑。"""
     _ensure_enabled()
     if body.kind != aigc.KIND_TEXT2VIDEO:
@@ -304,7 +308,7 @@ async def create_aigc_image_job(
     first_frame: UploadFile = File(...),
     prompt: str = Form(..., min_length=1, max_length=2000),
     params: str = Form("{}"),
-):
+) -> AigcJobDetail:
     """图生视频：首帧图先存本机，执行时再上传给 ComfyUI。"""
     _ensure_enabled()
     suffix = IMAGE_SUFFIXES.get(first_frame.content_type or "")
@@ -326,7 +330,9 @@ async def create_aigc_image_job(
     try:
         parsed_params = aigc.VideoParams.model_validate_json(params or "{}")
     except ValidationError as exc:
-        raise _error(422, "aigc_invalid_params", _first_validation_message(exc)) from None
+        raise _error(
+            422, "aigc_invalid_params", _first_validation_message(exc)
+        ) from None
 
     job = await run_in_threadpool(
         _persist_image_job,
@@ -344,14 +350,14 @@ async def create_aigc_image_job(
 @router.get("/jobs/{job_id}", response_model=AigcJobDetail)
 def read_aigc_job(
     current_user: CurrentUser, session: SessionDep, job_id: uuid.UUID
-):
+) -> AigcJobDetail:
     return _detail(_job_or_404(session, current_user.id, job_id))
 
 
 @router.post("/jobs/{job_id}/cancel", response_model=AigcJobDetail)
 def cancel_aigc_job(
     current_user: CurrentUser, session: SessionDep, job_id: uuid.UUID
-):
+) -> AigcJobDetail:
     job = _job_or_404(session, current_user.id, job_id)
     if job.status in aigc.TERMINAL_STATUSES:
         return _detail(job)
@@ -367,7 +373,7 @@ def cancel_aigc_job(
 @router.get("/jobs/{job_id}/video")
 def read_aigc_video(
     current_user: CurrentUser, session: SessionDep, job_id: uuid.UUID
-):
+) -> FileResponse:
     job = _job_or_404(session, current_user.id, job_id)
     if job.status != aigc.STATUS_SUCCEEDED or not job.output_relpath:
         raise HTTPException(404, detail="视频还没生成完")
@@ -380,7 +386,7 @@ def read_aigc_video(
 @router.delete("/jobs/{job_id}", status_code=204)
 def delete_aigc_job(
     current_user: CurrentUser, session: SessionDep, job_id: uuid.UUID
-):
+) -> None:
     job = _job_or_404(session, current_user.id, job_id)
     if job.status not in aigc.TERMINAL_STATUSES:
         raise _error(409, "aigc_job_active", "任务还在跑，先取消再删除。")

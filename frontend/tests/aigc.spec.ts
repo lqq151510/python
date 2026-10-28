@@ -26,6 +26,11 @@ async function openAigc(page: Page) {
 }
 
 test.describe.configure({ mode: "serial" })
+test.use({ storageState: { cookies: [], origins: [] } })
+test.skip(
+  process.env.AIGC_ENABLED !== "true",
+  "需要显式启用 AIGC_ENABLED 并启动本地 ComfyUI",
+)
 
 test("文生视频：提交后自动轮询到已完成并内嵌播放器", async ({ page }) => {
   await login(page)

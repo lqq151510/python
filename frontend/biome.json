@@ -9,7 +9,9 @@
       "!**/src/routeTree.gen.ts",
       "!**/src/client/**/*",
       "!**/src/components/ui/**/*",
+      "!**/playwright/.auth/**/*",
       "!**/playwright-report",
+      "!**/test-results",
       "!**/playwright.config.ts"
     ]
   },

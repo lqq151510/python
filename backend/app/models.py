@@ -1,8 +1,9 @@
 import uuid
 from datetime import UTC, datetime
+from typing import Literal
 
 from pydantic import EmailStr
-from sqlalchemy import DateTime, Index, Text, UniqueConstraint
+from sqlalchemy import DateTime, Index, String, Text, UniqueConstraint
 from sqlmodel import Field, Relationship, SQLModel
 
 
@@ -176,7 +177,9 @@ class ChatTurn(SQLModel, table=True):
     message: str = Field(sa_type=Text)
     answer: str = Field(sa_type=Text)
     sources_json: str = Field(default="[]", sa_type=Text)
-    retrieval_method: str | None = Field(default=None, max_length=16)
+    retrieval_method: Literal["bm25", "vector", "hybrid"] | None = Field(
+        default=None, max_length=16, sa_type=String(length=16)
+    )
     created_at: datetime = Field(
         default_factory=get_datetime_utc, sa_type=DateTime(timezone=True)
     )

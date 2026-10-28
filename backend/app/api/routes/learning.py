@@ -71,7 +71,7 @@ def delete_record(current_user: CurrentUser, record_id: uuid.UUID) -> dict[str, 
 def cache_stats(current_user: CurrentUser) -> dict[str, Any]:
     try:
         return {"available": True, **retrieval_cache.stats(str(current_user.id))}
-    except (RedisError, ValueError):
+    except RedisError, ValueError:
         return {"available": False, "hit": 0, "miss": 0}
 
 

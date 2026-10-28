@@ -1,3 +1,4 @@
+from collections.abc import AsyncIterator
 from contextlib import ExitStack, asynccontextmanager
 from pathlib import Path
 
@@ -27,7 +28,7 @@ if settings.SENTRY_DSN and settings.FASTAPI_ENV != "development":
 
 
 @asynccontextmanager
-async def lifespan(_app: FastAPI):
+async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     """先取得执行器独占权，再恢复任务；停掉线程之后才释放独占权。"""
     with ExitStack() as resources:
         if settings.AIGC_ENABLED:

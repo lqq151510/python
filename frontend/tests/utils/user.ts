@@ -23,13 +23,11 @@ export async function logInUser(page: Page, email: string, password: string) {
   await page.getByTestId("password-input").fill(password)
   await page.getByRole("button", { name: "Log In" }).click()
   await page.waitForURL("/")
-  await expect(
-    page.getByText("Welcome back, nice to see you again!"),
-  ).toBeVisible()
+  await expect(page.getByRole("heading", { name: "应用首页" })).toBeVisible()
 }
 
 export async function logOutUser(page: Page) {
-  await page.getByTestId("user-menu").click()
-  await page.getByRole("menuitem", { name: "Log out" }).click()
-  await page.goto("/login")
+  await page.getByLabel("我的账号菜单").click()
+  await page.getByRole("button", { name: "退出登录", exact: true }).click()
+  await expect(page).toHaveURL(/\/login$/)
 }

@@ -19,7 +19,7 @@ from app.chat import (
     generate_answer,
 )
 from app.core.db import engine
-from app.knowledge import KnowledgeError, retrieve_context_result
+from app.knowledge import KnowledgeError, KnowledgeSource, retrieve_context_result
 from app.models import ChatTurn
 
 logger = logging.getLogger(__name__)
@@ -131,20 +131,17 @@ def _ensure_request_matches(turn: ChatTurn, request_hash: str) -> None:
         )
 
 
-def _sources_from_turn(turn: ChatTurn) -> list[dict[str, object]]:
+def _sources_from_turn(turn: ChatTurn) -> list[KnowledgeSource]:
     try:
         sources = json.loads(turn.sources_json)
-    except (TypeError, json.JSONDecodeError):
+        if not isinstance(sources, list):
+            raise ValueError("sources must be a list")
+        return [KnowledgeSource.model_validate(source) for source in sources]
+    except TypeError, ValueError:
         raise HTTPException(
             status_code=500,
             detail={"code": "chat_history_corrupt", "message": "历史记录无法读取。"},
         ) from None
-    if not isinstance(sources, list):
-        raise HTTPException(
-            status_code=500,
-            detail={"code": "chat_history_corrupt", "message": "历史记录无法读取。"},
-        )
-    return sources
 
 
 def _response_from_turn(turn: ChatTurn, request_id: str) -> ChatResponse:

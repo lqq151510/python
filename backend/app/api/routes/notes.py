@@ -5,7 +5,14 @@ from fastapi import APIRouter, HTTPException, Query
 from sqlmodel import col, func, select
 
 from app.api.deps import CurrentUser, SessionDep
-from app.models import Note, NoteCreate, NotePublic, NotesPublic, NoteUpdate, get_datetime_utc
+from app.models import (
+    Note,
+    NoteCreate,
+    NotePublic,
+    NotesPublic,
+    NoteUpdate,
+    get_datetime_utc,
+)
 
 router = APIRouter(prefix="/notes", tags=["notes"])
 MAX_NOTES = 30
@@ -30,7 +37,9 @@ def read_notes(
     limit: int = Query(default=30, ge=1, le=30),
 ) -> Any:
     owner_id = current_user.id
-    count_statement = select(func.count()).select_from(Note).where(Note.owner_id == owner_id)
+    count_statement = (
+        select(func.count()).select_from(Note).where(Note.owner_id == owner_id)
+    )
     count = session.exec(count_statement).one()
     statement = (
         select(Note)
@@ -40,11 +49,15 @@ def read_notes(
         .limit(limit)
     )
     notes = session.exec(statement).all()
-    return NotesPublic(data=[NotePublic.model_validate(note) for note in notes], count=count)
+    return NotesPublic(
+        data=[NotePublic.model_validate(note) for note in notes], count=count
+    )
 
 
 @router.post("", response_model=NotePublic, status_code=201)
-def create_note(session: SessionDep, current_user: CurrentUser, body: NoteCreate) -> Any:
+def create_note(
+    session: SessionDep, current_user: CurrentUser, body: NoteCreate
+) -> Any:
     title = _clean(body.title)
     text = _clean(body.body)
     if not title or not text:

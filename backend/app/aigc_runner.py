@@ -20,7 +20,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from sqlalchemy import update as sa_update
-from sqlmodel import Session, select
+from sqlmodel import Session, col, select
 
 from app import aigc
 from app.core.config import settings
@@ -47,16 +47,16 @@ def _claim_next_job(session: Session) -> AigcJob | None:
         candidate = session.exec(
             select(AigcJob)
             .where(AigcJob.status == aigc.STATUS_QUEUED)
-            .order_by(AigcJob.created_at)
+            .order_by(col(AigcJob.created_at))
             .limit(1)
         ).first()
         if candidate is None:
             return None
-        result = session.execute(
+        result = session.exec(
             sa_update(AigcJob)
             .where(
-                AigcJob.id == candidate.id,
-                AigcJob.status == aigc.STATUS_QUEUED,
+                col(AigcJob.id) == candidate.id,
+                col(AigcJob.status) == aigc.STATUS_QUEUED,
             )
             .values(status=aigc.STATUS_RUNNING, started_at=_now(), progress=1)
         )
@@ -100,9 +100,7 @@ def _fail(session: Session, job: AigcJob, error: aigc.AigcError) -> None:
     logger.warning("aigc job %s failed: %s", job.id, error.code)
 
 
-def _finish(
-    session: Session, job: AigcJob, *, relpath: str, elapsed: float
-) -> None:
+def _finish(session: Session, job: AigcJob, *, relpath: str, elapsed: float) -> None:
     job.status = aigc.STATUS_SUCCEEDED
     job.progress = 100
     job.output_relpath = relpath
@@ -241,7 +239,9 @@ def run_job(job_id: uuid.UUID) -> None:
                 if poll_index % _QUEUE_PROBE_EVERY == 0:
                     position = _queue_position(client, prompt_id)
                     if position is not None and position > 0:
-                        job.status_message = f"ComfyUI 队列中，前面还有 {position - 1} 条"
+                        job.status_message = (
+                            f"ComfyUI 队列中，前面还有 {position - 1} 条"
+                        )
                     else:
                         job.status_message = "模型推理中"
                 job.progress = aigc.estimate_progress(
@@ -250,7 +250,9 @@ def run_job(job_id: uuid.UUID) -> None:
                 session.add(job)
                 session.commit()
                 poll_index += 1
-                if _stop_event.wait(max(settings.AIGC_POLL_INTERVAL_SECONDS, _POLL_FLOOR_SECONDS)):
+                if _stop_event.wait(
+                    max(settings.AIGC_POLL_INTERVAL_SECONDS, _POLL_FLOOR_SECONDS)
+                ):
                     return
         except aigc.AigcError as exc:
             if destination is not None:
@@ -278,12 +280,16 @@ def _worker_loop() -> None:
             with Session(engine) as session:
                 job = _claim_next_job(session)
             if job is None:
-                _stop_event.wait(max(settings.AIGC_POLL_INTERVAL_SECONDS, _POLL_FLOOR_SECONDS))
+                _stop_event.wait(
+                    max(settings.AIGC_POLL_INTERVAL_SECONDS, _POLL_FLOOR_SECONDS)
+                )
                 continue
             run_job(job.id)
         except Exception:  # noqa: BLE001 - 线程不能死
             logger.exception("aigc runner loop error")
-            _stop_event.wait(max(settings.AIGC_POLL_INTERVAL_SECONDS, _POLL_FLOOR_SECONDS))
+            _stop_event.wait(
+                max(settings.AIGC_POLL_INTERVAL_SECONDS, _POLL_FLOOR_SECONDS)
+            )
     logger.info("aigc runner stopped")
 
 
@@ -296,9 +302,7 @@ def ensure_runner_started() -> bool:
         if _thread is not None and _thread.is_alive():
             return True
         _stop_event.clear()
-        _thread = threading.Thread(
-            target=_worker_loop, name="aigc-runner", daemon=True
-        )
+        _thread = threading.Thread(target=_worker_loop, name="aigc-runner", daemon=True)
         _thread.start()
         return True
 

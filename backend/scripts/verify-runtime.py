@@ -183,6 +183,7 @@ class RuntimeVerifier:
         *,
         token: str | None = None,
         expected: int = 200,
+        expected_error_code: str | None = None,
         **kwargs: Any,
     ) -> dict[str, Any]:
         headers = {"Authorization": f"Bearer {token}"} if token else {}
@@ -195,6 +196,17 @@ class RuntimeVerifier:
             }
         )
         require(response.status_code == expected, f"{name}: unexpected HTTP status")
+        if expected_error_code is not None:
+            try:
+                error_body = response.json()
+            except ValueError:
+                raise VerificationFailure(f"{name}: expected an error JSON object") from None
+            detail = error_body.get("detail") if isinstance(error_body, dict) else None
+            require(
+                isinstance(detail, dict) and detail.get("code") == expected_error_code,
+                f"{name}: unexpected error code",
+            )
+            return {}
         if expected in {403, 404, 409}:
             return {}
         body = response.json()
@@ -373,43 +385,80 @@ class RuntimeVerifier:
             token=second,
             expected=404,
         )
+        self.verify_workspace(first, second, fact)
+
+    def verify_workspace(self, first: str, second: str, fact: str) -> None:
+        """Exercise only this run's synthetic files and version conflicts."""
         code_path = f"runtime_{self.run_id}.py"
+        other_path = f"runtime_other_{self.run_id}.py"
         before = "RELEASE_CODE = 'pending'\n"
+        other_before = "OTHER = 'pending'\n"
+        manual = "RELEASE_CODE = 'manual'\n"
         updated = f"RELEASE_CODE = '{fact}'\n"
+        other_updated = "OTHER = 'applied'\n"
         self.request(
-            "workspace_upload",
-            "POST",
-            "code/workspace/files",
-            token=first,
-            files=[("files", (code_path, before.encode(), "text/plain"))],
+            "workspace_upload", "POST", "code/workspace/files", token=first,
+            files=[
+                ("files", (code_path, before.encode(), "text/plain")),
+                ("files", (other_path, other_before.encode(), "text/plain")),
+            ],
+        )
+
+        def read(path: str, name: str) -> dict[str, Any]:
+            return self.request(name, "GET", f"code/workspace/files/{path}", token=first)
+
+        def version(body: dict[str, Any], name: str) -> str:
+            value = body.get("base_version")
+            require(isinstance(value, str) and bool(value), f"{name}: missing base_version")
+            return value
+
+        def diff(path: str, content: str, name: str) -> str:
+            body = self.request(name, "POST", "code/workspace/diff", token=first,
+                                json={"path": path, "content": content})
+            return version(body, name)
+
+        initial = read(code_path, "workspace_initial_read")
+        require(initial.get("content") == before, "Uploaded workspace content mismatch")
+        initial_version = version(initial, "workspace_initial_read")
+        first_version = diff(code_path, updated, "workspace_initial_diff")
+        other_version = diff(other_path, other_updated, "workspace_other_diff")
+        require(initial_version == first_version, "Read and diff versions differ")
+
+        self.request(
+            "workspace_manual_save", "PUT", "code/workspace/files", token=first,
+            json={"path": code_path, "content": manual, "base_version": initial_version},
         )
         self.request(
-            "workspace_apply",
-            "POST",
-            "code/workspace/apply",
-            token=first,
-            json={
-                "permission": "workspace_modify",
-                "approved": True,
-                "edits": [{"path": code_path, "content": updated}],
-            },
+            "workspace_manual_conflict", "PUT", "code/workspace/files", token=first,
+            expected=409, expected_error_code="workspace_conflict",
+            json={"path": code_path, "content": updated, "base_version": initial_version},
         )
-        code = self.request(
-            "workspace_readback",
-            "GET",
-            f"code/workspace/files/{code_path}",
-            token=first,
-        )
-        require(
-            code.get("content") == updated,
-            "Workspace content did not match applied edit",
-        )
+        stale_edits = [
+            {"path": code_path, "content": updated, "base_version": first_version},
+            {"path": other_path, "content": other_updated, "base_version": other_version},
+        ]
         self.request(
-            "workspace_other_owner_denied",
-            "GET",
-            f"code/workspace/files/{code_path}",
-            token=second,
-            expected=404,
+            "workspace_apply_conflict", "POST", "code/workspace/apply", token=first,
+            expected=409, expected_error_code="workspace_conflict",
+            json={"permission": "workspace_modify", "approved": True, "edits": stale_edits},
+        )
+        require(read(code_path, "workspace_conflict_read").get("content") == manual,
+                "Conflicting file changed unexpectedly")
+        require(read(other_path, "workspace_conflict_other_read").get("content") == other_before,
+                "Batch conflict modified another file")
+
+        stale_edits[0]["base_version"] = diff(code_path, updated, "workspace_fresh_diff")
+        self.request(
+            "workspace_apply", "POST", "code/workspace/apply", token=first,
+            json={"permission": "workspace_modify", "approved": True, "edits": stale_edits},
+        )
+        require(read(code_path, "workspace_readback").get("content") == updated,
+                "Workspace content did not match applied edit")
+        require(read(other_path, "workspace_other_readback").get("content") == other_updated,
+                "Other workspace file did not match applied edit")
+        self.request(
+            "workspace_other_owner_denied", "GET", f"code/workspace/files/{code_path}",
+            token=second, expected=404,
         )
 
 

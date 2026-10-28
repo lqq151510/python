@@ -217,7 +217,7 @@ function AigcStudio() {
 
         <div className="da-aigc-grid">
           <form className="da-aigc-form" onSubmit={onSubmit}>
-            <div className="da-mode-switch" role="group" aria-label="生成方式">
+            <fieldset className="da-mode-switch" aria-label="生成方式">
               <button
                 type="button"
                 className={kind === "text2video" ? "is-active" : ""}
@@ -234,7 +234,7 @@ function AigcStudio() {
               >
                 <ImagePlus size={18} aria-hidden="true" /> 图生视频
               </button>
-            </div>
+            </fieldset>
 
             <label>
               提示词

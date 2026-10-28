@@ -62,7 +62,7 @@ def get(key: str, namespace: str) -> tuple[dict[str, Any] | None, str]:
         client().expire(counter, 3600)
         payload = json.loads(raw) if raw else None
         return payload if isinstance(payload, dict) else None, status
-    except (RedisError, ValueError, TypeError):
+    except RedisError, ValueError, TypeError:
         return None, "unavailable"
 
 

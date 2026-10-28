@@ -10,7 +10,10 @@ from app.code_agent import (
     CodeDiffResult,
     CodeGenerateRequest,
     CodeGenerateResponse,
+    CodeModelConfig,
+    CodeWorkspacePublic,
     GithubImportRequest,
+    GithubImportResult,
     WorkspaceDiffRequest,
     WorkspaceFileWrite,
     apply_workspace_edits,
@@ -19,7 +22,7 @@ from app.code_agent import (
     get_model_config,
     import_github_repository,
     list_workspace,
-    read_workspace_file,
+    read_workspace_file_with_version,
     review_workspace_diff,
     save_workspace_file,
     store_workspace_uploads,
@@ -37,25 +40,25 @@ def _raise_api_error(request: Request, error: CodeAgentError) -> NoReturn:
 
 
 @router.get("/config")
-def code_model_config(_current_user: CurrentUser):
+def code_model_config(_current_user: CurrentUser) -> CodeModelConfig:
     """Return non-secret model connection status for the code workspace UI."""
     return get_model_config()
 
 
 @router.get("/workspace")
-async def read_code_workspace(current_user: CurrentUser):
+async def read_code_workspace(current_user: CurrentUser) -> CodeWorkspacePublic:
     return await run_in_threadpool(list_workspace, current_user.id)
 
 
 @router.get("/workspace/files/{file_path:path}")
 async def read_code_workspace_file(
     request: Request, current_user: CurrentUser, file_path: str
-):
+) -> dict[str, str]:
     try:
-        content = await run_in_threadpool(
-            read_workspace_file, current_user.id, file_path
+        content, base_version = await run_in_threadpool(
+            read_workspace_file_with_version, current_user.id, file_path
         )
-        return {"path": file_path, "content": content}
+        return {"path": file_path, "content": content, "base_version": base_version}
     except CodeAgentError as exc:
         _raise_api_error(request, exc)
 
@@ -63,10 +66,14 @@ async def read_code_workspace_file(
 @router.put("/workspace/files")
 async def write_code_workspace_file(
     request: Request, current_user: CurrentUser, body: WorkspaceFileWrite
-):
+) -> CodeWorkspacePublic:
     try:
         return await run_in_threadpool(
-            save_workspace_file, current_user.id, body.path, body.content
+            save_workspace_file,
+            current_user.id,
+            body.path,
+            body.content,
+            body.base_version,
         )
     except CodeAgentError as exc:
         _raise_api_error(request, exc)
@@ -75,9 +82,11 @@ async def write_code_workspace_file(
 @router.delete("/workspace/files/{file_path:path}")
 async def delete_code_workspace_file(
     request: Request, current_user: CurrentUser, file_path: str
-):
+) -> CodeWorkspacePublic:
     try:
-        return await run_in_threadpool(delete_workspace_file, current_user.id, file_path)
+        return await run_in_threadpool(
+            delete_workspace_file, current_user.id, file_path
+        )
     except CodeAgentError as exc:
         _raise_api_error(request, exc)
 
@@ -85,10 +94,14 @@ async def delete_code_workspace_file(
 @router.post("/workspace/diff", response_model=CodeDiffResult)
 async def diff_code_workspace_file(
     request: Request, current_user: CurrentUser, body: WorkspaceDiffRequest
-):
+) -> CodeDiffResult:
     try:
         return await run_in_threadpool(
-            review_workspace_diff, current_user.id, body.path, body.content, full=body.full
+            review_workspace_diff,
+            current_user.id,
+            body.path,
+            body.content,
+            full=body.full,
         )
     except CodeAgentError as exc:
         _raise_api_error(request, exc)
@@ -99,13 +112,15 @@ async def upload_code_workspace_files(
     request: Request,
     current_user: CurrentUser,
     files: list[UploadFile] = File(...),
-):
+) -> CodeWorkspacePublic:
     uploads: list[tuple[str, bytes]] = []
     try:
         for file in files:
             content = await file.read(512 * 1024 + 1)
             uploads.append((file.filename or "", content))
-        return await run_in_threadpool(store_workspace_uploads, current_user.id, uploads)
+        return await run_in_threadpool(
+            store_workspace_uploads, current_user.id, uploads
+        )
     except CodeAgentError as exc:
         _raise_api_error(request, exc)
     finally:
@@ -116,7 +131,7 @@ async def upload_code_workspace_files(
 @router.post("/workspace/github")
 async def import_public_github_repository(
     request: Request, current_user: CurrentUser, body: GithubImportRequest
-):
+) -> GithubImportResult:
     try:
         return await import_github_repository(current_user.id, body.repository)
     except CodeAgentError as exc:
@@ -146,7 +161,7 @@ async def create_code_generation(
 @router.post("/workspace/apply")
 async def apply_code_generation(
     request: Request, current_user: CurrentUser, body: CodeApplyRequest
-):
+) -> CodeWorkspacePublic:
     if body.permission == "read_only":
         _raise_api_error(
             request,
@@ -165,7 +180,9 @@ async def apply_code_generation(
         _raise_api_error(
             request,
             CodeAgentError(
-                403, "full_permissions_confirmation_required", "完整权限需要先确认风险说明。"
+                403,
+                "full_permissions_confirmation_required",
+                "完整权限需要先确认风险说明。",
             ),
         )
     try:

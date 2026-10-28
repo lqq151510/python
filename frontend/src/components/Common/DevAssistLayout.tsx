@@ -21,7 +21,9 @@ import "@/styles/devassist.css"
 export function DevAssistLayout({ children }: { children: ReactNode }) {
   const { user, logout } = useAuth()
   const path = useRouterState({ select: (state) => state.location.pathname })
-  const [soft, setSoft] = useState(false)
+  const [soft, setSoft] = useState(
+    () => localStorage.getItem("devassist-appearance") === "soft",
+  )
   return (
     <div className={`da-shell ${soft ? "da-soft" : ""}`}>
       <a className="da-skip" href="#da-main">
@@ -100,7 +102,14 @@ export function DevAssistLayout({ children }: { children: ReactNode }) {
             className="da-appearance"
             aria-label={soft ? "切换为清爽浅色" : "切换为柔和浅色"}
             aria-pressed={soft}
-            onClick={() => setSoft(!soft)}
+            onClick={() => {
+              const nextSoft = !soft
+              setSoft(nextSoft)
+              localStorage.setItem(
+                "devassist-appearance",
+                nextSoft ? "soft" : "default",
+              )
+            }}
           >
             <Sun size={22} aria-hidden="true" />
             <span>{soft ? "柔和浅色" : "清爽浅色"}</span>
