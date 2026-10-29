@@ -57,6 +57,8 @@
   padding: 25px 12px 30px;
   background: var(--da-rail);
   border-right: 1px solid var(--border);
+  /* 窗口矮的时候让导航自己滚，页脚（含账号菜单）始终留在可见区域。 */
+  overflow: hidden;
 }
 .da-brand {
   display: flex;
@@ -85,6 +87,12 @@
   flex-direction: column;
   gap: 6px;
   margin-top: 33px;
+  /* 窗口矮时导航滚动，页脚（账号菜单）不被顶出可视区。 */
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
 }
 .da-nav a {
   display: flex;
