@@ -14,11 +14,11 @@ async function login(page: Page) {
   await page.getByTestId("email-input").fill(EMAIL)
   await page.getByTestId("password-input").fill(PASSWORD)
   await page.getByRole("button", { name: "Log In" }).click()
-  await page.waitForURL("**/", { timeout: 20_000 })
+  await page.waitForURL("/workspace", { timeout: 20_000 })
 }
 
 async function openAigc(page: Page) {
-  // /aigc 使用 DevAssistLayout 自己的侧栏，首页用的是模板侧栏，所以直接进路由。
+  // /aigc 使用 DevAssistLayout 自己的侧栏，工作台只渲染三栏工作区，所以直接进路由。
   await page.goto("/aigc")
   await expect(page.getByRole("region", { name: "AI 视频生成" })).toBeVisible()
   const navLink = page.getByRole("link", { name: "AI 视频生成" })
