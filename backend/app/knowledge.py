@@ -24,6 +24,7 @@ CHUNK_OVERLAP = 150
 # A moderate length penalty keeps precise evidence in long chunks competitive.
 BM25_K1 = 1.5
 BM25_B = 0.5
+EXACT_PHRASE_BOOST = 2.0
 
 
 class KnowledgeError(Exception):
@@ -186,6 +187,7 @@ def rank_chunks(
     terms = set(tokenize(query)[:256])
     if not terms or not contents:
         return []
+    normalized_query = " ".join(query.casefold().split())
     counts = [Counter(tokenize(content)) for content in contents]
     lengths = [sum(count.values()) for count in counts]
     average = sum(lengths) / len(lengths) or 1
@@ -210,6 +212,10 @@ def rank_chunks(
                 )
             )
         if score > 0:
+            if len(terms) > 1 and normalized_query in " ".join(
+                contents[index].casefold().split()
+            ):
+                score *= EXACT_PHRASE_BOOST
             results.append((index, score))
     return sorted(results, key=lambda result: (-result[1], result[0]))[:limit]
 

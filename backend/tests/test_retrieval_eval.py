@@ -302,6 +302,7 @@ def test_offline_cli_needs_no_env_network_or_database_and_is_reproducible(
     )
     assert reports[0]["parameters"]["bm25_k1"] == 1.5
     assert reports[0]["parameters"]["bm25_b"] == 0.5
+    assert reports[0]["parameters"]["exact_phrase_boost"] == 2.0
     strict, output = run_offline(tmp_path, 4, ["--strict"])
     assert strict.returncode == 1 and output.is_file()
     assert "严格验收未通过" in strict.stderr

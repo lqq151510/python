@@ -92,3 +92,12 @@ def test_long_chunk_covering_both_identifiers_outranks_a_short_partial_match() -
     ]
     ranked = rank_chunks("quota_bucket owner_scope", documents)
     assert ranked[0][0] == 1
+
+
+def test_exact_technical_phrase_outranks_scattered_terms() -> None:
+    documents = [
+        "request_id separate timeout",
+        "request_id timeout " + "detail " * 100,
+    ]
+    ranked = rank_chunks("request_id timeout", documents)
+    assert ranked[0][0] == 1

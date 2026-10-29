@@ -135,6 +135,23 @@ def test_unknown_or_nonverbatim_evidence_is_invalid(
         parse_grounded_answer(json.dumps(valid_payload() | change), sources)
 
 
+def test_every_answer_paragraph_needs_a_validated_citation(
+    sources: list[KnowledgeSource],
+) -> None:
+    payload = valid_payload()
+    payload["answer"] = "缓存时间为30秒。[S1]\n\n连接超时是5秒。"
+    with pytest.raises(ValueError, match="paragraph missing citation"):
+        parse_grounded_answer(json.dumps(payload), sources)
+
+
+def test_format_example_does_not_inject_answer_facts(
+    sources: list[KnowledgeSource],
+) -> None:
+    system = build_grounded_messages("question", sources)[0]
+    assert "30秒" not in str(system["content"])
+    assert "Cache duration is 30 seconds." not in str(system["content"])
+
+
 def test_question_and_source_instructions_remain_user_data(
     sources: list[KnowledgeSource],
 ) -> None:
@@ -276,3 +293,5 @@ def test_default_document_chat_preserves_plain_text_contract(
     assert isinstance(messages, list)
     assert messages[0]["content"] == chat.DOCUMENT_SYSTEM_PROMPT
     assert sources[0].content in messages[1]["content"]
+    assert INSUFFICIENT_EVIDENCE_ANSWER in chat.DOCUMENT_SYSTEM_PROMPT
+    assert "每个非空段落" in chat.DOCUMENT_SYSTEM_PROMPT
