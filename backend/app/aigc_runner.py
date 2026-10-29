@@ -5,7 +5,8 @@ ComfyUI 在本机同一时刻只能跑一条 H3 任务（32 GiB 统一内存，�
 
 约定：
 - 只支持单进程部署（uvicorn --workers 1）。启动恢复前取得 PostgreSQL 会话锁，
-  第二个执行器拒绝启动；领任务另用「带状态条件的 UPDATE」避免双领。
+  第二个执行器拒绝启动；领任务用 `FOR UPDATE SKIP LOCKED`，行锁覆盖「选中 → 置为
+  running」这段，不阻塞在别的执行器或取消请求持有的行上。
 - 进程重启后：queued 保持原样，running 会被 recover_interrupted_jobs 放回队列。
 - 取消是协作式的：置 canceled 后，执行器在下一个轮询点调用 /interrupt 并落库。
 """
@@ -19,8 +20,8 @@ import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 
-from sqlalchemy import update as sa_update
 from sqlmodel import Session, col, select
+from sqlmodel.sql.expression import SelectOfScalar
 
 from app import aigc
 from app.core.config import settings
@@ -41,29 +42,34 @@ def _now() -> datetime:
     return datetime.now(UTC)
 
 
+def _claim_statement() -> SelectOfScalar[AigcJob]:
+    """最早排队的任务；`SKIP LOCKED` 跳过别的执行器或取消请求已持有的行。"""
+    return (
+        select(AigcJob)
+        .where(AigcJob.status == aigc.STATUS_QUEUED)
+        .order_by(col(AigcJob.created_at))
+        .limit(1)
+        .with_for_update(skip_locked=True)
+    )
+
+
 def _claim_next_job(session: Session) -> AigcJob | None:
-    """领一条排队中的任务。条件 UPDATE 保证同一条不会被领两次。"""
-    while True:
-        candidate = session.exec(
-            select(AigcJob)
-            .where(AigcJob.status == aigc.STATUS_QUEUED)
-            .order_by(col(AigcJob.created_at))
-            .limit(1)
-        ).first()
-        if candidate is None:
-            return None
-        result = session.exec(
-            sa_update(AigcJob)
-            .where(
-                col(AigcJob.id) == candidate.id,
-                col(AigcJob.status) == aigc.STATUS_QUEUED,
-            )
-            .values(status=aigc.STATUS_RUNNING, started_at=_now(), progress=1)
-        )
-        session.commit()
-        if result.rowcount:
-            session.refresh(candidate)
-            return candidate
+    """领一条排队中的任务。
+
+    行的所有权由 SELECT ... FOR UPDATE SKIP LOCKED 保证：从选中到 commit 之间，
+    其他连接要么看到旧状态、要么直接跳过这一行，不会出现两次领取。
+    SQLite 不支持该子句，SQLAlchemy 会静默省略，因此这条语义只在 PostgreSQL 生效。
+    """
+    job = session.exec(_claim_statement()).first()
+    if job is None:
+        return None
+    job.status = aigc.STATUS_RUNNING
+    job.started_at = _now()
+    job.progress = 1
+    session.add(job)
+    session.commit()
+    session.refresh(job)
+    return job
 
 
 def recover_interrupted_jobs(session: Session) -> int:

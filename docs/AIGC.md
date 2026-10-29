@@ -34,7 +34,7 @@ fencing（旧执行器隔离）机制，因此不能保证数据库断连期间�
 前端表单 /aigc
   -> POST /api/v1/aigc/jobs（或 /jobs/image，multipart）
   -> 校验参数 → AigcJob 落库（status=queued）→ 立即返回 job_id
-  -> aigc_runner 单并发线程：claim 任务（条件 UPDATE，避免双领）
+  -> aigc_runner 单并发线程：claim 任务（FOR UPDATE SKIP LOCKED，避免双领且不阻塞）
      -> ComfyUI POST /prompt（API 格式工作流）
      -> 轮询 GET /history/{prompt_id}
      -> GET /view 取回 mp4 → 写入 AIGC_OUTPUT_DIR/{owner_id}/{job_id}.mp4
