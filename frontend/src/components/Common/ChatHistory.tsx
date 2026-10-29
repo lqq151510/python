@@ -121,7 +121,7 @@ export function ChatHistory({ userId }: { userId: string }) {
               <p>{detail.data.message}</p>
               <h3>回答</h3>
               <p className="da-chat-history-answer">{detail.data.answer}</p>
-              <div>
+              <div className="da-chat-history-actions">
                 <LoadingButton
                   type="button"
                   variant="outline"

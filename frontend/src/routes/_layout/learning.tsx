@@ -9,9 +9,9 @@ import {
   addLearningRecord,
   compareVectorStores,
   deleteLearningRecord,
+  type LearningRecord,
   listLearningRecords,
   readCacheStats,
-  type LearningRecord,
 } from "@/lib/learning"
 
 export const Route = createFileRoute("/_layout/learning")({

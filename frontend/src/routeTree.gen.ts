@@ -24,8 +24,8 @@ import { Route as LayoutItemsRouteImport } from './routes/_layout/items'
 import { Route as LayoutKnowledgeRouteImport } from './routes/_layout/knowledge'
 import { Route as LayoutLearningRouteImport } from './routes/_layout/learning'
 import { Route as LayoutNotesRouteImport } from './routes/_layout/notes'
-import { Route as LayoutTasksRouteImport } from './routes/_layout/tasks'
 import { Route as LayoutSettingsRouteImport } from './routes/_layout/settings'
+import { Route as LayoutTasksRouteImport } from './routes/_layout/tasks'
 
 const LayoutRoute = LayoutRouteImport.update({
   id: '/_layout',
@@ -101,14 +101,14 @@ const LayoutNotesRoute = LayoutNotesRouteImport.update({
   path: '/notes',
   getParentRoute: () => LayoutRoute,
 } as any)
-const LayoutTasksRoute = LayoutTasksRouteImport.update({
-  id: '/tasks',
-  path: '/tasks',
-  getParentRoute: () => LayoutRoute,
-} as any)
 const LayoutSettingsRoute = LayoutSettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
+  getParentRoute: () => LayoutRoute,
+} as any)
+const LayoutTasksRoute = LayoutTasksRouteImport.update({
+  id: '/tasks',
+  path: '/tasks',
   getParentRoute: () => LayoutRoute,
 } as any)
 
@@ -127,8 +127,8 @@ export interface FileRoutesByFullPath {
   '/knowledge': typeof LayoutKnowledgeRoute
   '/learning': typeof LayoutLearningRoute
   '/notes': typeof LayoutNotesRoute
-  '/tasks': typeof LayoutTasksRoute
   '/settings': typeof LayoutSettingsRoute
+  '/tasks': typeof LayoutTasksRoute
 }
 export interface FileRoutesByTo {
   '/login': typeof LoginRoute
@@ -144,8 +144,8 @@ export interface FileRoutesByTo {
   '/knowledge': typeof LayoutKnowledgeRoute
   '/learning': typeof LayoutLearningRoute
   '/notes': typeof LayoutNotesRoute
-  '/tasks': typeof LayoutTasksRoute
   '/settings': typeof LayoutSettingsRoute
+  '/tasks': typeof LayoutTasksRoute
   '/': typeof LayoutIndexRoute
 }
 export interface FileRoutesById {
@@ -164,8 +164,8 @@ export interface FileRoutesById {
   '/_layout/knowledge': typeof LayoutKnowledgeRoute
   '/_layout/learning': typeof LayoutLearningRoute
   '/_layout/notes': typeof LayoutNotesRoute
-  '/_layout/tasks': typeof LayoutTasksRoute
   '/_layout/settings': typeof LayoutSettingsRoute
+  '/_layout/tasks': typeof LayoutTasksRoute
   '/_layout/': typeof LayoutIndexRoute
 }
 export interface FileRouteTypes {
@@ -185,8 +185,8 @@ export interface FileRouteTypes {
     | '/knowledge'
     | '/learning'
     | '/notes'
-    | '/tasks'
     | '/settings'
+    | '/tasks'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/login'
@@ -202,8 +202,8 @@ export interface FileRouteTypes {
     | '/knowledge'
     | '/learning'
     | '/notes'
-    | '/tasks'
     | '/settings'
+    | '/tasks'
     | '/'
   id:
     | '__root__'
@@ -221,8 +221,8 @@ export interface FileRouteTypes {
     | '/_layout/knowledge'
     | '/_layout/learning'
     | '/_layout/notes'
-    | '/_layout/tasks'
     | '/_layout/settings'
+    | '/_layout/tasks'
     | '/_layout/'
   fileRoutesById: FileRoutesById
 }
@@ -341,18 +341,18 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof LayoutNotesRouteImport
       parentRoute: typeof LayoutRoute
     }
-    '/_layout/tasks': {
-      id: '/_layout/tasks'
-      path: '/tasks'
-      fullPath: '/tasks'
-      preLoaderRoute: typeof LayoutTasksRouteImport
-      parentRoute: typeof LayoutRoute
-    }
     '/_layout/settings': {
       id: '/_layout/settings'
       path: '/settings'
       fullPath: '/settings'
       preLoaderRoute: typeof LayoutSettingsRouteImport
+      parentRoute: typeof LayoutRoute
+    }
+    '/_layout/tasks': {
+      id: '/_layout/tasks'
+      path: '/tasks'
+      fullPath: '/tasks'
+      preLoaderRoute: typeof LayoutTasksRouteImport
       parentRoute: typeof LayoutRoute
     }
   }
@@ -368,8 +368,8 @@ interface LayoutRouteChildren {
   LayoutKnowledgeRoute: typeof LayoutKnowledgeRoute
   LayoutLearningRoute: typeof LayoutLearningRoute
   LayoutNotesRoute: typeof LayoutNotesRoute
-  LayoutTasksRoute: typeof LayoutTasksRoute
   LayoutSettingsRoute: typeof LayoutSettingsRoute
+  LayoutTasksRoute: typeof LayoutTasksRoute
   LayoutIndexRoute: typeof LayoutIndexRoute
 }
 
@@ -383,8 +383,8 @@ const LayoutRouteChildren: LayoutRouteChildren = {
   LayoutKnowledgeRoute: LayoutKnowledgeRoute,
   LayoutLearningRoute: LayoutLearningRoute,
   LayoutNotesRoute: LayoutNotesRoute,
-  LayoutTasksRoute: LayoutTasksRoute,
   LayoutSettingsRoute: LayoutSettingsRoute,
+  LayoutTasksRoute: LayoutTasksRoute,
   LayoutIndexRoute: LayoutIndexRoute,
 }
 

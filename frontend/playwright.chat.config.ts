@@ -10,7 +10,7 @@ export default defineConfig({
   forbidOnly: !!process.env.CI,
   retries: 0,
   reporter: "list",
-  outputDir: "test-results/chat",
+  outputDir: "../.local/playwright/chat",
   use: { baseURL, trace: "retain-on-failure" },
   projects: [
     {

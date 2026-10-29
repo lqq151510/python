@@ -14,10 +14,10 @@ import { Button } from "@/components/ui/button"
 import { LoadingButton } from "@/components/ui/loading-button"
 import useAuth from "@/hooks/useAuth"
 import {
-  type RetrievalMethod as RetrievalMode,
   deleteDocument,
   describeKnowledgeError,
   listDocuments,
+  type RetrievalMethod as RetrievalMode,
   searchDocuments,
   uploadDocument,
   validDocumentId,

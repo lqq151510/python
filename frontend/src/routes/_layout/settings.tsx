@@ -18,7 +18,11 @@ export const Route = createFileRoute("/_layout/settings")({
 })
 
 function countText(
-  query: { isPending: boolean; isError: boolean; data?: { count?: number; open_count?: number } },
+  query: {
+    isPending: boolean
+    isError: boolean
+    data?: { count?: number; open_count?: number }
+  },
   field: "count" | "open_count",
 ) {
   if (query.isPending) return "…"
@@ -114,7 +118,7 @@ function PersonalCenter() {
       <ProfileForm />
       <PasswordForm />
       {user.is_superuser ? (
-        <p>超级用户不能在这里删除自己的账号。</p>
+        <p className="da-empty">超级用户不能在这里删除自己的账号。</p>
       ) : (
         <DeleteOwnAccount onDeleted={logout} />
       )}

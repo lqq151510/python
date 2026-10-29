@@ -28,7 +28,10 @@ export async function listStudyTasks() {
   return response.data
 }
 
-export async function createStudyTask(input: { title: string; detail: string }) {
+export async function createStudyTask(input: {
+  title: string
+  detail: string
+}) {
   const response = await client.post<{ 201: StudyTaskRecord }, unknown, true>({
     url: "/api/v1/tasks",
     security: [...security],
