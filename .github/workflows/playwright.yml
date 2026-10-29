@@ -74,6 +74,9 @@ jobs:
     - run: bun ci
       working-directory: frontend
     - run: bash scripts/generate-client.sh
+    # 生成物必须与提交版本一致，否则前端类型会与后端接口悄悄偏离。
+    - name: Check the generated API client is up to date
+      run: git diff --exit-code -- frontend/src/client
     - run: docker compose build
     - run: docker compose down -v --remove-orphans
     - run: docker compose run --rm backend bash scripts/prestart.sh

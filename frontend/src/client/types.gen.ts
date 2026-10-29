@@ -5,6 +5,359 @@ export type ClientOptions = {
 };
 
 /**
+ * AgentSessionDetail
+ */
+export type AgentSessionDetail = {
+    session: AgentSessionPublic;
+    /**
+     * Turns
+     */
+    turns: Array<AgentTurnPublic>;
+};
+
+/**
+ * AgentSessionPublic
+ */
+export type AgentSessionPublic = {
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Title
+     */
+    title: string;
+    /**
+     * Turn Count
+     */
+    turn_count: number;
+    /**
+     * Created At
+     */
+    created_at: string;
+    /**
+     * Updated At
+     */
+    updated_at: string;
+};
+
+/**
+ * AgentSessionsPublic
+ */
+export type AgentSessionsPublic = {
+    /**
+     * Data
+     */
+    data: Array<AgentSessionPublic>;
+    /**
+     * Count
+     */
+    count: number;
+};
+
+/**
+ * AgentStepPublic
+ */
+export type AgentStepPublic = {
+    /**
+     * Name
+     */
+    name: string;
+    /**
+     * Ok
+     */
+    ok: boolean;
+    /**
+     * Detail
+     */
+    detail: string;
+};
+
+/**
+ * AgentTurnPublic
+ */
+export type AgentTurnPublic = {
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Message
+     */
+    message: string;
+    /**
+     * Answer
+     */
+    answer: string;
+    /**
+     * Steps
+     */
+    steps: Array<AgentStepPublic>;
+    /**
+     * Stopped
+     */
+    stopped: boolean;
+    /**
+     * Created At
+     */
+    created_at: string;
+};
+
+/**
+ * AgentTurnRequest
+ */
+export type AgentTurnRequest = {
+    /**
+     * Message
+     */
+    message: string;
+    /**
+     * Session Id
+     */
+    session_id?: string | null;
+};
+
+/**
+ * AgentTurnResponse
+ */
+export type AgentTurnResponse = {
+    session: AgentSessionPublic;
+    turn: AgentTurnPublic;
+    /**
+     * Request Id
+     */
+    request_id: string;
+};
+
+/**
+ * AigcConfig
+ */
+export type AigcConfig = {
+    /**
+     * Enabled
+     */
+    enabled: boolean;
+    /**
+     * Runner Running
+     */
+    runner_running: boolean;
+    /**
+     * Comfy Reachable
+     */
+    comfy_reachable: boolean;
+    /**
+     * Comfy Error
+     */
+    comfy_error?: string | null;
+    /**
+     * Active Jobs
+     */
+    active_jobs: number;
+    /**
+     * Max Queue Depth
+     */
+    max_queue_depth: number;
+    /**
+     * Defaults
+     */
+    defaults: {
+        [key: string]: unknown;
+    };
+    /**
+     * Limits
+     */
+    limits: {
+        [key: string]: unknown;
+    };
+    /**
+     * Model Profiles
+     */
+    model_profiles: Array<string>;
+    /**
+     * Generation Profiles
+     */
+    generation_profiles: Array<string>;
+};
+
+/**
+ * AigcJobCreate
+ */
+export type AigcJobCreate = {
+    /**
+     * Kind
+     */
+    kind?: 'text2video' | 'image2video';
+    /**
+     * Prompt
+     */
+    prompt: string;
+    params?: VideoParams;
+};
+
+/**
+ * AigcJobDetail
+ */
+export type AigcJobDetail = {
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Kind
+     */
+    kind: string;
+    /**
+     * Status
+     */
+    status: string;
+    /**
+     * Prompt
+     */
+    prompt: string;
+    params: VideoParams;
+    /**
+     * Progress
+     */
+    progress: number;
+    /**
+     * Status Message
+     */
+    status_message?: string | null;
+    /**
+     * Estimate Seconds
+     */
+    estimate_seconds: number;
+    /**
+     * Eta Seconds
+     */
+    eta_seconds?: number | null;
+    /**
+     * Output Url
+     */
+    output_url?: string | null;
+    /**
+     * Error Code
+     */
+    error_code?: string | null;
+    /**
+     * Error Message
+     */
+    error_message?: string | null;
+    /**
+     * Created At
+     */
+    created_at: string;
+    /**
+     * Started At
+     */
+    started_at?: string | null;
+    /**
+     * Finished At
+     */
+    finished_at?: string | null;
+};
+
+/**
+ * AigcJobSummary
+ */
+export type AigcJobSummary = {
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Kind
+     */
+    kind: string;
+    /**
+     * Status
+     */
+    status: string;
+    /**
+     * Progress
+     */
+    progress: number;
+    /**
+     * Prompt
+     */
+    prompt: string;
+    /**
+     * Status Message
+     */
+    status_message?: string | null;
+    /**
+     * Error Code
+     */
+    error_code?: string | null;
+    /**
+     * Output Url
+     */
+    output_url?: string | null;
+    /**
+     * Created At
+     */
+    created_at: string;
+};
+
+/**
+ * Body_aigc-create_aigc_image_job
+ */
+export type Body_aigc_create_aigc_image_job = {
+    /**
+     * First Frame
+     */
+    first_frame: Blob | File;
+    /**
+     * Prompt
+     */
+    prompt: string;
+    /**
+     * Params
+     */
+    params?: string;
+};
+
+/**
+ * Body_code-upload_code_workspace_files
+ */
+export type Body_code_upload_code_workspace_files = {
+    /**
+     * Files
+     */
+    files: Array<Blob | File>;
+};
+
+/**
+ * Body_documents-upload_document
+ */
+export type Body_documents_upload_document = {
+    /**
+     * File
+     */
+    file: Blob | File;
+};
+
+/**
+ * Body_images-search_by_image
+ */
+export type Body_images_search_by_image = {
+    /**
+     * File
+     */
+    file: Blob | File;
+};
+
+/**
+ * Body_images-upload_image
+ */
+export type Body_images_upload_image = {
+    /**
+     * File
+     */
+    file: Blob | File;
+};
+
+/**
  * Body_login-login_access_token
  */
 export type Body_login_login_access_token = {
@@ -35,6 +388,464 @@ export type Body_login_login_access_token = {
 };
 
 /**
+ * ChatHistoryDetail
+ */
+export type ChatHistoryDetail = {
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Message
+     */
+    message: string;
+    /**
+     * Answer
+     */
+    answer: string;
+    /**
+     * Request Id
+     */
+    request_id: string;
+    /**
+     * Sources
+     */
+    sources?: Array<KnowledgeSource>;
+    /**
+     * Retrieval Method
+     */
+    retrieval_method?: 'bm25' | 'vector' | 'hybrid' | null;
+    /**
+     * Retrieval Warning
+     */
+    retrieval_warning?: string | null;
+    /**
+     * Created At
+     */
+    created_at: string;
+};
+
+/**
+ * ChatHistoryResponse
+ */
+export type ChatHistoryResponse = {
+    /**
+     * Data
+     */
+    data: Array<ChatHistorySummary>;
+    /**
+     * Count
+     */
+    count: number;
+};
+
+/**
+ * ChatHistorySummary
+ */
+export type ChatHistorySummary = {
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Message
+     */
+    message: string;
+    /**
+     * Answer Preview
+     */
+    answer_preview: string;
+    /**
+     * Source Count
+     */
+    source_count: number;
+    /**
+     * Retrieval Method
+     */
+    retrieval_method?: 'bm25' | 'vector' | 'hybrid' | null;
+    /**
+     * Created At
+     */
+    created_at: string;
+};
+
+/**
+ * ChatRequest
+ */
+export type ChatRequest = {
+    /**
+     * Message
+     */
+    message: string;
+    /**
+     * Use Documents
+     */
+    use_documents?: boolean;
+    /**
+     * Document Id
+     */
+    document_id?: string | null;
+    /**
+     * Retrieval Method
+     */
+    retrieval_method?: 'bm25' | 'vector' | 'hybrid';
+    /**
+     * Client Request Id
+     */
+    client_request_id?: string | null;
+};
+
+/**
+ * ChatResponse
+ */
+export type ChatResponse = {
+    /**
+     * Answer
+     */
+    answer: string;
+    /**
+     * Request Id
+     */
+    request_id: string;
+    /**
+     * Sources
+     */
+    sources?: Array<KnowledgeSource>;
+    /**
+     * Retrieval Method
+     */
+    retrieval_method?: 'bm25' | 'vector' | 'hybrid' | null;
+    /**
+     * Retrieval Warning
+     */
+    retrieval_warning?: string | null;
+};
+
+/**
+ * CodeApplyEdit
+ */
+export type CodeApplyEdit = {
+    /**
+     * Path
+     */
+    path: string;
+    /**
+     * Content
+     */
+    content: string;
+    /**
+     * Base Version
+     */
+    base_version: string;
+};
+
+/**
+ * CodeApplyRequest
+ */
+export type CodeApplyRequest = {
+    /**
+     * Permission
+     */
+    permission: 'read_only' | 'workspace_modify' | 'full';
+    /**
+     * Approved
+     */
+    approved?: boolean;
+    /**
+     * Full Permissions Acknowledged
+     */
+    full_permissions_acknowledged?: boolean;
+    /**
+     * Edits
+     */
+    edits: Array<CodeApplyEdit>;
+};
+
+/**
+ * CodeDiffLine
+ */
+export type CodeDiffLine = {
+    /**
+     * Kind
+     */
+    kind: 'add' | 'delete';
+    /**
+     * Text
+     */
+    text: string;
+};
+
+/**
+ * CodeDiffResult
+ */
+export type CodeDiffResult = {
+    /**
+     * Base Version
+     */
+    base_version: string;
+    /**
+     * Status
+     */
+    status: 'new' | 'unchanged' | 'changed';
+    /**
+     * Lines
+     */
+    lines: Array<CodeDiffLine>;
+    /**
+     * Truncated
+     */
+    truncated?: boolean;
+};
+
+/**
+ * CodeFileEdit
+ */
+export type CodeFileEdit = {
+    /**
+     * Path
+     */
+    path: string;
+    /**
+     * Content
+     */
+    content: string;
+};
+
+/**
+ * CodeGenerateRequest
+ */
+export type CodeGenerateRequest = {
+    /**
+     * Task
+     */
+    task: string;
+    /**
+     * Goal
+     */
+    goal?: string;
+    /**
+     * Plan Only
+     */
+    plan_only?: boolean;
+    /**
+     * Permission
+     */
+    permission?: 'read_only' | 'workspace_modify' | 'full';
+    /**
+     * Full Permissions Acknowledged
+     */
+    full_permissions_acknowledged?: boolean;
+    /**
+     * Workspace Paths
+     */
+    workspace_paths?: Array<string>;
+};
+
+/**
+ * CodeGenerateResponse
+ */
+export type CodeGenerateResponse = {
+    /**
+     * Plan
+     */
+    plan: Array<string>;
+    /**
+     * Summary
+     */
+    summary: string;
+    /**
+     * Edits
+     */
+    edits: Array<CodeFileEdit>;
+    /**
+     * Request Id
+     */
+    request_id: string;
+};
+
+/**
+ * CodeModelConfig
+ */
+export type CodeModelConfig = {
+    /**
+     * Api Format
+     */
+    api_format: 'openai_chat_completions' | 'openai_responses' | 'anthropic_messages' | 'gemini_generate_content';
+    /**
+     * Model
+     */
+    model: string | null;
+    /**
+     * Configured
+     */
+    configured: boolean;
+    /**
+     * Local
+     */
+    local?: boolean;
+    /**
+     * Base Url Host
+     */
+    base_url_host?: string | null;
+};
+
+/**
+ * CodeWorkspacePublic
+ */
+export type CodeWorkspacePublic = {
+    /**
+     * Files
+     */
+    files: Array<WorkspaceFile>;
+    /**
+     * Total Bytes
+     */
+    total_bytes: number;
+};
+
+/**
+ * CompareRequest
+ */
+export type CompareRequest = {
+    /**
+     * Query
+     */
+    query: string;
+    /**
+     * Document Id
+     */
+    document_id?: string | null;
+};
+
+/**
+ * DocumentChunkPublic
+ */
+export type DocumentChunkPublic = {
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Position
+     */
+    position: number;
+    /**
+     * Heading
+     */
+    heading: string;
+    /**
+     * Line Start
+     */
+    line_start: number;
+    /**
+     * Line End
+     */
+    line_end: number;
+    /**
+     * Content
+     */
+    content: string;
+};
+
+/**
+ * DocumentDetail
+ */
+export type DocumentDetail = {
+    document: DocumentPublic;
+    /**
+     * Chunks
+     */
+    chunks: Array<DocumentChunkPublic>;
+};
+
+/**
+ * DocumentPublic
+ */
+export type DocumentPublic = {
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Filename
+     */
+    filename: string;
+    /**
+     * Size Bytes
+     */
+    size_bytes: number;
+    /**
+     * Chunk Count
+     */
+    chunk_count: number;
+    /**
+     * Created At
+     */
+    created_at: string;
+};
+
+/**
+ * DocumentUploadResponse
+ */
+export type DocumentUploadResponse = {
+    document: DocumentPublic;
+    /**
+     * Duplicate
+     */
+    duplicate: boolean;
+};
+
+/**
+ * DocumentsPublic
+ */
+export type DocumentsPublic = {
+    /**
+     * Data
+     */
+    data: Array<DocumentPublic>;
+    /**
+     * Count
+     */
+    count: number;
+};
+
+/**
+ * GithubImportRequest
+ */
+export type GithubImportRequest = {
+    /**
+     * Repository
+     */
+    repository: string;
+};
+
+/**
+ * GithubImportResult
+ */
+export type GithubImportResult = {
+    /**
+     * Files
+     */
+    files: Array<WorkspaceFile>;
+    /**
+     * Total Bytes
+     */
+    total_bytes: number;
+    /**
+     * Imported
+     */
+    imported: number;
+    /**
+     * Repository
+     */
+    repository: string;
+    /**
+     * Branch
+     */
+    branch: string;
+};
+
+/**
  * HTTPValidationError
  */
 export type HTTPValidationError = {
@@ -42,6 +853,111 @@ export type HTTPValidationError = {
      * Detail
      */
     detail?: Array<ValidationError>;
+};
+
+/**
+ * ImageHit
+ */
+export type ImageHit = {
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Filename
+     */
+    filename: string;
+    /**
+     * Media Type
+     */
+    media_type: string;
+    /**
+     * Score
+     */
+    score: number;
+};
+
+/**
+ * ImagePublic
+ */
+export type ImagePublic = {
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Filename
+     */
+    filename: string;
+    /**
+     * Size Bytes
+     */
+    size_bytes: number;
+    /**
+     * Media Type
+     */
+    media_type: string;
+    /**
+     * Created At
+     */
+    created_at: string;
+};
+
+/**
+ * ImageSearchQuery
+ */
+export type ImageSearchQuery = {
+    /**
+     * Query
+     */
+    query: string;
+    /**
+     * Limit
+     */
+    limit?: number;
+};
+
+/**
+ * ImageSearchResponse
+ */
+export type ImageSearchResponse = {
+    /**
+     * Kind
+     */
+    kind: string;
+    /**
+     * Hits
+     */
+    hits: Array<ImageHit>;
+    /**
+     * Request Id
+     */
+    request_id: string;
+};
+
+/**
+ * ImageUploadResponse
+ */
+export type ImageUploadResponse = {
+    image: ImagePublic;
+    /**
+     * Duplicate
+     */
+    duplicate: boolean;
+};
+
+/**
+ * ImagesPublic
+ */
+export type ImagesPublic = {
+    /**
+     * Data
+     */
+    data: Array<ImagePublic>;
+    /**
+     * Count
+     */
+    count: number;
 };
 
 /**
@@ -113,6 +1029,48 @@ export type ItemsPublic = {
 };
 
 /**
+ * KnowledgeSource
+ */
+export type KnowledgeSource = {
+    /**
+     * Citation
+     */
+    citation: string;
+    /**
+     * Document Id
+     */
+    document_id: string;
+    /**
+     * Chunk Id
+     */
+    chunk_id: string;
+    /**
+     * Filename
+     */
+    filename: string;
+    /**
+     * Heading
+     */
+    heading: string;
+    /**
+     * Line Start
+     */
+    line_start: number;
+    /**
+     * Line End
+     */
+    line_end: number;
+    /**
+     * Content
+     */
+    content: string;
+    /**
+     * Score
+     */
+    score: number;
+};
+
+/**
  * Message
  */
 export type Message = {
@@ -137,6 +1095,88 @@ export type NewPassword = {
 };
 
 /**
+ * NoteCreate
+ */
+export type NoteCreate = {
+    /**
+     * Title
+     */
+    title: string;
+    /**
+     * Body
+     */
+    body: string;
+};
+
+/**
+ * NotePublic
+ */
+export type NotePublic = {
+    /**
+     * Title
+     */
+    title: string;
+    /**
+     * Body
+     */
+    body: string;
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Created At
+     */
+    created_at: string;
+    /**
+     * Updated At
+     */
+    updated_at: string;
+};
+
+/**
+ * NoteRequest
+ */
+export type NoteRequest = {
+    /**
+     * Title
+     */
+    title: string;
+    /**
+     * Notes
+     */
+    notes?: string;
+};
+
+/**
+ * NoteUpdate
+ */
+export type NoteUpdate = {
+    /**
+     * Title
+     */
+    title?: string | null;
+    /**
+     * Body
+     */
+    body?: string | null;
+};
+
+/**
+ * NotesPublic
+ */
+export type NotesPublic = {
+    /**
+     * Data
+     */
+    data: Array<NotePublic>;
+    /**
+     * Count
+     */
+    count: number;
+};
+
+/**
  * PrivateUserCreate
  */
 export type PrivateUserCreate = {
@@ -156,6 +1196,142 @@ export type PrivateUserCreate = {
      * Is Verified
      */
     is_verified?: boolean;
+};
+
+/**
+ * SearchRequest
+ */
+export type SearchRequest = {
+    /**
+     * Query
+     */
+    query: string;
+    /**
+     * Limit
+     */
+    limit?: number;
+    /**
+     * Document Id
+     */
+    document_id?: string | null;
+    /**
+     * Method
+     */
+    method?: 'bm25' | 'vector' | 'hybrid';
+};
+
+/**
+ * SearchResponse
+ */
+export type SearchResponse = {
+    /**
+     * Query
+     */
+    query: string;
+    /**
+     * Method
+     */
+    method?: 'bm25' | 'vector' | 'hybrid';
+    /**
+     * Sources
+     */
+    sources: Array<KnowledgeSource>;
+    /**
+     * Document Id
+     */
+    document_id?: string | null;
+    /**
+     * Warning
+     */
+    warning?: string | null;
+    /**
+     * Cache Status
+     */
+    cache_status?: string | null;
+    /**
+     * Vector Store
+     */
+    vector_store?: string | null;
+};
+
+/**
+ * StudyTaskCreate
+ */
+export type StudyTaskCreate = {
+    /**
+     * Title
+     */
+    title: string;
+    /**
+     * Detail
+     */
+    detail?: string;
+};
+
+/**
+ * StudyTaskPublic
+ */
+export type StudyTaskPublic = {
+    /**
+     * Title
+     */
+    title: string;
+    /**
+     * Detail
+     */
+    detail?: string;
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Done
+     */
+    done: boolean;
+    /**
+     * Created At
+     */
+    created_at: string;
+    /**
+     * Updated At
+     */
+    updated_at: string;
+};
+
+/**
+ * StudyTaskUpdate
+ */
+export type StudyTaskUpdate = {
+    /**
+     * Title
+     */
+    title?: string | null;
+    /**
+     * Detail
+     */
+    detail?: string | null;
+    /**
+     * Done
+     */
+    done?: boolean | null;
+};
+
+/**
+ * StudyTasksPublic
+ */
+export type StudyTasksPublic = {
+    /**
+     * Data
+     */
+    data: Array<StudyTaskPublic>;
+    /**
+     * Count
+     */
+    count: number;
+    /**
+     * Open Count
+     */
+    open_count: number;
 };
 
 /**
@@ -340,6 +1516,104 @@ export type ValidationError = {
     ctx?: {
         [key: string]: unknown;
     };
+};
+
+/**
+ * VideoParams
+ *
+ * 一次生成任务的 H3 参数。默认值对应本机 32 GiB 的草稿档。
+ */
+export type VideoParams = {
+    /**
+     * Width
+     */
+    width?: number;
+    /**
+     * Height
+     */
+    height?: number;
+    /**
+     * Duration Seconds
+     */
+    duration_seconds?: number;
+    /**
+     * Seed
+     */
+    seed?: number;
+    /**
+     * Model Profile
+     */
+    model_profile?: '4-bit' | '8-bit' | 'bf16' | 'bf16-pruned' | '4-bit-pruned' | '8-bit-pruned' | 'attention16-mlp8-pruned';
+    /**
+     * Generation Profile
+     */
+    generation_profile?: 'Turbo 4 Fast' | 'Turbo 8 Balanced' | 'Full 20 Quality';
+    /**
+     * Memory Mode
+     */
+    memory_mode?: 'auto' | 'resident' | 'stream2' | 'stream5';
+    /**
+     * Qwen Precision
+     */
+    qwen_precision?: 'prequantized 8-bit';
+    /**
+     * Attention
+     */
+    attention?: 'sol_attn' | 'dense';
+    /**
+     * Sol Tau
+     */
+    sol_tau?: number;
+};
+
+/**
+ * WorkspaceDiffRequest
+ */
+export type WorkspaceDiffRequest = {
+    /**
+     * Path
+     */
+    path: string;
+    /**
+     * Content
+     */
+    content: string;
+    /**
+     * Full
+     */
+    full?: boolean;
+};
+
+/**
+ * WorkspaceFile
+ */
+export type WorkspaceFile = {
+    /**
+     * Path
+     */
+    path: string;
+    /**
+     * Size Bytes
+     */
+    size_bytes: number;
+};
+
+/**
+ * WorkspaceFileWrite
+ */
+export type WorkspaceFileWrite = {
+    /**
+     * Path
+     */
+    path: string;
+    /**
+     * Content
+     */
+    content: string;
+    /**
+     * Base Version
+     */
+    base_version: string;
 };
 
 export type loginLoginAccessTokenData = {
@@ -920,6 +2194,1263 @@ export type itemsUpdateItemResponses = {
 };
 
 export type itemsUpdateItemResponse = itemsUpdateItemResponses[keyof itemsUpdateItemResponses];
+
+export type chatCreateChatData = {
+    body: ChatRequest;
+    path?: never;
+    query?: never;
+    url: '/api/v1/chat';
+};
+
+export type chatCreateChatErrors = {
+    /**
+     * Validation Error
+     */
+    422: HTTPValidationError;
+};
+
+export type chatCreateChatError = chatCreateChatErrors[keyof chatCreateChatErrors];
+
+export type chatCreateChatResponses = {
+    /**
+     * Successful Response
+     */
+    200: ChatResponse;
+};
+
+export type chatCreateChatResponse = chatCreateChatResponses[keyof chatCreateChatResponses];
+
+export type chatReadChatHistoryData = {
+    body?: never;
+    path?: never;
+    query?: {
+        /**
+         * Skip
+         */
+        skip?: number;
+        /**
+         * Limit
+         */
+        limit?: number;
+    };
+    url: '/api/v1/chat/history';
+};
+
+export type chatReadChatHistoryErrors = {
+    /**
+     * Validation Error
+     */
+    422: HTTPValidationError;
+};
+
+export type chatReadChatHistoryError = chatReadChatHistoryErrors[keyof chatReadChatHistoryErrors];
+
+export type chatReadChatHistoryResponses = {
+    /**
+     * Successful Response
+     */
+    200: ChatHistoryResponse;
+};
+
+export type chatReadChatHistoryResponse = chatReadChatHistoryResponses[keyof chatReadChatHistoryResponses];
+
+export type chatReadChatHistoryDetailData = {
+    body?: never;
+    path: {
+        /**
+         * Turn Id
+         */
+        turn_id: string;
+    };
+    query?: never;
+    url: '/api/v1/chat/history/{turn_id}';
+};
+
+export type chatReadChatHistoryDetailErrors = {
+    /**
+     * Validation Error
+     */
+    422: HTTPValidationError;
+};
+
+export type chatReadChatHistoryDetailError = chatReadChatHistoryDetailErrors[keyof chatReadChatHistoryDetailErrors];
+
+export type chatReadChatHistoryDetailResponses = {
+    /**
+     * Successful Response
+     */
+    200: ChatHistoryDetail;
+};
+
+export type chatReadChatHistoryDetailResponse = chatReadChatHistoryDetailResponses[keyof chatReadChatHistoryDetailResponses];
+
+export type codeCodeModelConfigData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/v1/code/config';
+};
+
+export type codeCodeModelConfigResponses = {
+    /**
+     * Successful Response
+     */
+    200: CodeModelConfig;
+};
+
+export type codeCodeModelConfigResponse = codeCodeModelConfigResponses[keyof codeCodeModelConfigResponses];
+
+export type codeReadCodeWorkspaceData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/v1/code/workspace';
+};
+
+export type codeReadCodeWorkspaceResponses = {
+    /**
+     * Successful Response
+     */
+    200: CodeWorkspacePublic;
+};
+
+export type codeReadCodeWorkspaceResponse = codeReadCodeWorkspaceResponses[keyof codeReadCodeWorkspaceResponses];
+
+export type codeDeleteCodeWorkspaceFileData = {
+    body?: never;
+    path: {
+        /**
+         * File Path
+         */
+        file_path: string;
+    };
+    query?: never;
+    url: '/api/v1/code/workspace/files/{file_path}';
+};
+
+export type codeDeleteCodeWorkspaceFileErrors = {
+    /**
+     * Validation Error
+     */
+    422: HTTPValidationError;
+};
+
+export type codeDeleteCodeWorkspaceFileError = codeDeleteCodeWorkspaceFileErrors[keyof codeDeleteCodeWorkspaceFileErrors];
+
+export type codeDeleteCodeWorkspaceFileResponses = {
+    /**
+     * Successful Response
+     */
+    200: CodeWorkspacePublic;
+};
+
+export type codeDeleteCodeWorkspaceFileResponse = codeDeleteCodeWorkspaceFileResponses[keyof codeDeleteCodeWorkspaceFileResponses];
+
+export type codeReadCodeWorkspaceFileData = {
+    body?: never;
+    path: {
+        /**
+         * File Path
+         */
+        file_path: string;
+    };
+    query?: never;
+    url: '/api/v1/code/workspace/files/{file_path}';
+};
+
+export type codeReadCodeWorkspaceFileErrors = {
+    /**
+     * Validation Error
+     */
+    422: HTTPValidationError;
+};
+
+export type codeReadCodeWorkspaceFileError = codeReadCodeWorkspaceFileErrors[keyof codeReadCodeWorkspaceFileErrors];
+
+export type codeReadCodeWorkspaceFileResponses = {
+    /**
+     * Response Code-Read Code Workspace File
+     *
+     * Successful Response
+     */
+    200: {
+        [key: string]: string;
+    };
+};
+
+export type codeReadCodeWorkspaceFileResponse = codeReadCodeWorkspaceFileResponses[keyof codeReadCodeWorkspaceFileResponses];
+
+export type codeUploadCodeWorkspaceFilesData = {
+    body: Body_code_upload_code_workspace_files;
+    path?: never;
+    query?: never;
+    url: '/api/v1/code/workspace/files';
+};
+
+export type codeUploadCodeWorkspaceFilesErrors = {
+    /**
+     * Validation Error
+     */
+    422: HTTPValidationError;
+};
+
+export type codeUploadCodeWorkspaceFilesError = codeUploadCodeWorkspaceFilesErrors[keyof codeUploadCodeWorkspaceFilesErrors];
+
+export type codeUploadCodeWorkspaceFilesResponses = {
+    /**
+     * Successful Response
+     */
+    200: CodeWorkspacePublic;
+};
+
+export type codeUploadCodeWorkspaceFilesResponse = codeUploadCodeWorkspaceFilesResponses[keyof codeUploadCodeWorkspaceFilesResponses];
+
+export type codeWriteCodeWorkspaceFileData = {
+    body: WorkspaceFileWrite;
+    path?: never;
+    query?: never;
+    url: '/api/v1/code/workspace/files';
+};
+
+export type codeWriteCodeWorkspaceFileErrors = {
+    /**
+     * Validation Error
+     */
+    422: HTTPValidationError;
+};
+
+export type codeWriteCodeWorkspaceFileError = codeWriteCodeWorkspaceFileErrors[keyof codeWriteCodeWorkspaceFileErrors];
+
+export type codeWriteCodeWorkspaceFileResponses = {
+    /**
+     * Successful Response
+     */
+    200: CodeWorkspacePublic;
+};
+
+export type codeWriteCodeWorkspaceFileResponse = codeWriteCodeWorkspaceFileResponses[keyof codeWriteCodeWorkspaceFileResponses];
+
+export type codeDiffCodeWorkspaceFileData = {
+    body: WorkspaceDiffRequest;
+    path?: never;
+    query?: never;
+    url: '/api/v1/code/workspace/diff';
+};
+
+export type codeDiffCodeWorkspaceFileErrors = {
+    /**
+     * Validation Error
+     */
+    422: HTTPValidationError;
+};
+
+export type codeDiffCodeWorkspaceFileError = codeDiffCodeWorkspaceFileErrors[keyof codeDiffCodeWorkspaceFileErrors];
+
+export type codeDiffCodeWorkspaceFileResponses = {
+    /**
+     * Successful Response
+     */
+    200: CodeDiffResult;
+};
+
+export type codeDiffCodeWorkspaceFileResponse = codeDiffCodeWorkspaceFileResponses[keyof codeDiffCodeWorkspaceFileResponses];
+
+export type codeImportPublicGithubRepositoryData = {
+    body: GithubImportRequest;
+    path?: never;
+    query?: never;
+    url: '/api/v1/code/workspace/github';
+};
+
+export type codeImportPublicGithubRepositoryErrors = {
+    /**
+     * Validation Error
+     */
+    422: HTTPValidationError;
+};
+
+export type codeImportPublicGithubRepositoryError = codeImportPublicGithubRepositoryErrors[keyof codeImportPublicGithubRepositoryErrors];
+
+export type codeImportPublicGithubRepositoryResponses = {
+    /**
+     * Successful Response
+     */
+    200: GithubImportResult;
+};
+
+export type codeImportPublicGithubRepositoryResponse = codeImportPublicGithubRepositoryResponses[keyof codeImportPublicGithubRepositoryResponses];
+
+export type codeCreateCodeGenerationData = {
+    body: CodeGenerateRequest;
+    path?: never;
+    query?: never;
+    url: '/api/v1/code/generate';
+};
+
+export type codeCreateCodeGenerationErrors = {
+    /**
+     * Validation Error
+     */
+    422: HTTPValidationError;
+};
+
+export type codeCreateCodeGenerationError = codeCreateCodeGenerationErrors[keyof codeCreateCodeGenerationErrors];
+
+export type codeCreateCodeGenerationResponses = {
+    /**
+     * Successful Response
+     */
+    200: CodeGenerateResponse;
+};
+
+export type codeCreateCodeGenerationResponse = codeCreateCodeGenerationResponses[keyof codeCreateCodeGenerationResponses];
+
+export type codeApplyCodeGenerationData = {
+    body: CodeApplyRequest;
+    path?: never;
+    query?: never;
+    url: '/api/v1/code/workspace/apply';
+};
+
+export type codeApplyCodeGenerationErrors = {
+    /**
+     * Validation Error
+     */
+    422: HTTPValidationError;
+};
+
+export type codeApplyCodeGenerationError = codeApplyCodeGenerationErrors[keyof codeApplyCodeGenerationErrors];
+
+export type codeApplyCodeGenerationResponses = {
+    /**
+     * Successful Response
+     */
+    200: CodeWorkspacePublic;
+};
+
+export type codeApplyCodeGenerationResponse = codeApplyCodeGenerationResponses[keyof codeApplyCodeGenerationResponses];
+
+export type documentsReadDocumentsData = {
+    body?: never;
+    path?: never;
+    query?: {
+        /**
+         * Skip
+         */
+        skip?: number;
+        /**
+         * Limit
+         */
+        limit?: number;
+    };
+    url: '/api/v1/documents';
+};
+
+export type documentsReadDocumentsErrors = {
+    /**
+     * Validation Error
+     */
+    422: HTTPValidationError;
+};
+
+export type documentsReadDocumentsError = documentsReadDocumentsErrors[keyof documentsReadDocumentsErrors];
+
+export type documentsReadDocumentsResponses = {
+    /**
+     * Successful Response
+     */
+    200: DocumentsPublic;
+};
+
+export type documentsReadDocumentsResponse = documentsReadDocumentsResponses[keyof documentsReadDocumentsResponses];
+
+export type documentsUploadDocumentData = {
+    body: Body_documents_upload_document;
+    path?: never;
+    query?: never;
+    url: '/api/v1/documents';
+};
+
+export type documentsUploadDocumentErrors = {
+    /**
+     * Validation Error
+     */
+    422: HTTPValidationError;
+};
+
+export type documentsUploadDocumentError = documentsUploadDocumentErrors[keyof documentsUploadDocumentErrors];
+
+export type documentsUploadDocumentResponses = {
+    /**
+     * Successful Response
+     */
+    201: DocumentUploadResponse;
+};
+
+export type documentsUploadDocumentResponse = documentsUploadDocumentResponses[keyof documentsUploadDocumentResponses];
+
+export type documentsSearchDocumentChunksData = {
+    body: SearchRequest;
+    path?: never;
+    query?: never;
+    url: '/api/v1/documents/search';
+};
+
+export type documentsSearchDocumentChunksErrors = {
+    /**
+     * Validation Error
+     */
+    422: HTTPValidationError;
+};
+
+export type documentsSearchDocumentChunksError = documentsSearchDocumentChunksErrors[keyof documentsSearchDocumentChunksErrors];
+
+export type documentsSearchDocumentChunksResponses = {
+    /**
+     * Successful Response
+     */
+    200: SearchResponse;
+};
+
+export type documentsSearchDocumentChunksResponse = documentsSearchDocumentChunksResponses[keyof documentsSearchDocumentChunksResponses];
+
+export type documentsDeleteDocumentData = {
+    body?: never;
+    path: {
+        /**
+         * Id
+         */
+        id: string;
+    };
+    query?: never;
+    url: '/api/v1/documents/{id}';
+};
+
+export type documentsDeleteDocumentErrors = {
+    /**
+     * Validation Error
+     */
+    422: HTTPValidationError;
+};
+
+export type documentsDeleteDocumentError = documentsDeleteDocumentErrors[keyof documentsDeleteDocumentErrors];
+
+export type documentsDeleteDocumentResponses = {
+    /**
+     * Successful Response
+     */
+    200: Message;
+};
+
+export type documentsDeleteDocumentResponse = documentsDeleteDocumentResponses[keyof documentsDeleteDocumentResponses];
+
+export type documentsReadDocumentData = {
+    body?: never;
+    path: {
+        /**
+         * Id
+         */
+        id: string;
+    };
+    query?: never;
+    url: '/api/v1/documents/{id}';
+};
+
+export type documentsReadDocumentErrors = {
+    /**
+     * Validation Error
+     */
+    422: HTTPValidationError;
+};
+
+export type documentsReadDocumentError = documentsReadDocumentErrors[keyof documentsReadDocumentErrors];
+
+export type documentsReadDocumentResponses = {
+    /**
+     * Successful Response
+     */
+    200: DocumentDetail;
+};
+
+export type documentsReadDocumentResponse = documentsReadDocumentResponses[keyof documentsReadDocumentResponses];
+
+export type imagesReadImagesData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/v1/images';
+};
+
+export type imagesReadImagesResponses = {
+    /**
+     * Successful Response
+     */
+    200: ImagesPublic;
+};
+
+export type imagesReadImagesResponse = imagesReadImagesResponses[keyof imagesReadImagesResponses];
+
+export type imagesUploadImageData = {
+    body: Body_images_upload_image;
+    path?: never;
+    query?: never;
+    url: '/api/v1/images';
+};
+
+export type imagesUploadImageErrors = {
+    /**
+     * Validation Error
+     */
+    422: HTTPValidationError;
+};
+
+export type imagesUploadImageError = imagesUploadImageErrors[keyof imagesUploadImageErrors];
+
+export type imagesUploadImageResponses = {
+    /**
+     * Successful Response
+     */
+    201: ImageUploadResponse;
+};
+
+export type imagesUploadImageResponse = imagesUploadImageResponses[keyof imagesUploadImageResponses];
+
+export type imagesSearchImagesData = {
+    body: ImageSearchQuery;
+    path?: never;
+    query?: never;
+    url: '/api/v1/images/search';
+};
+
+export type imagesSearchImagesErrors = {
+    /**
+     * Validation Error
+     */
+    422: HTTPValidationError;
+};
+
+export type imagesSearchImagesError = imagesSearchImagesErrors[keyof imagesSearchImagesErrors];
+
+export type imagesSearchImagesResponses = {
+    /**
+     * Successful Response
+     */
+    200: ImageSearchResponse;
+};
+
+export type imagesSearchImagesResponse = imagesSearchImagesResponses[keyof imagesSearchImagesResponses];
+
+export type imagesSearchByImageData = {
+    body: Body_images_search_by_image;
+    path?: never;
+    query?: never;
+    url: '/api/v1/images/search-by-image';
+};
+
+export type imagesSearchByImageErrors = {
+    /**
+     * Validation Error
+     */
+    422: HTTPValidationError;
+};
+
+export type imagesSearchByImageError = imagesSearchByImageErrors[keyof imagesSearchByImageErrors];
+
+export type imagesSearchByImageResponses = {
+    /**
+     * Successful Response
+     */
+    200: ImageSearchResponse;
+};
+
+export type imagesSearchByImageResponse = imagesSearchByImageResponses[keyof imagesSearchByImageResponses];
+
+export type imagesReadImageFileData = {
+    body?: never;
+    path: {
+        /**
+         * Image Id
+         */
+        image_id: string;
+    };
+    query?: never;
+    url: '/api/v1/images/{image_id}/file';
+};
+
+export type imagesReadImageFileErrors = {
+    /**
+     * Validation Error
+     */
+    422: HTTPValidationError;
+};
+
+export type imagesReadImageFileError = imagesReadImageFileErrors[keyof imagesReadImageFileErrors];
+
+export type imagesReadImageFileResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
+export type imagesDeleteImageData = {
+    body?: never;
+    path: {
+        /**
+         * Image Id
+         */
+        image_id: string;
+    };
+    query?: never;
+    url: '/api/v1/images/{image_id}';
+};
+
+export type imagesDeleteImageErrors = {
+    /**
+     * Validation Error
+     */
+    422: HTTPValidationError;
+};
+
+export type imagesDeleteImageError = imagesDeleteImageErrors[keyof imagesDeleteImageErrors];
+
+export type imagesDeleteImageResponses = {
+    /**
+     * Response Images-Delete Image
+     *
+     * Successful Response
+     */
+    200: {
+        [key: string]: string;
+    };
+};
+
+export type imagesDeleteImageResponse = imagesDeleteImageResponses[keyof imagesDeleteImageResponses];
+
+export type agentReadAgentSessionsData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/v1/agent/sessions';
+};
+
+export type agentReadAgentSessionsResponses = {
+    /**
+     * Successful Response
+     */
+    200: AgentSessionsPublic;
+};
+
+export type agentReadAgentSessionsResponse = agentReadAgentSessionsResponses[keyof agentReadAgentSessionsResponses];
+
+export type agentReadAgentSessionData = {
+    body?: never;
+    path: {
+        /**
+         * Session Id
+         */
+        session_id: string;
+    };
+    query?: never;
+    url: '/api/v1/agent/sessions/{session_id}';
+};
+
+export type agentReadAgentSessionErrors = {
+    /**
+     * Validation Error
+     */
+    422: HTTPValidationError;
+};
+
+export type agentReadAgentSessionError = agentReadAgentSessionErrors[keyof agentReadAgentSessionErrors];
+
+export type agentReadAgentSessionResponses = {
+    /**
+     * Successful Response
+     */
+    200: AgentSessionDetail;
+};
+
+export type agentReadAgentSessionResponse = agentReadAgentSessionResponses[keyof agentReadAgentSessionResponses];
+
+export type agentCreateAgentTurnData = {
+    body: AgentTurnRequest;
+    path?: never;
+    query?: never;
+    url: '/api/v1/agent/turns';
+};
+
+export type agentCreateAgentTurnErrors = {
+    /**
+     * Validation Error
+     */
+    422: HTTPValidationError;
+};
+
+export type agentCreateAgentTurnError = agentCreateAgentTurnErrors[keyof agentCreateAgentTurnErrors];
+
+export type agentCreateAgentTurnResponses = {
+    /**
+     * Successful Response
+     */
+    200: AgentTurnResponse;
+};
+
+export type agentCreateAgentTurnResponse = agentCreateAgentTurnResponses[keyof agentCreateAgentTurnResponses];
+
+export type learningListRecordsData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/v1/learning';
+};
+
+export type learningListRecordsResponses = {
+    /**
+     * Response Learning-List Records
+     *
+     * Successful Response
+     */
+    200: {
+        [key: string]: unknown;
+    };
+};
+
+export type learningListRecordsResponse = learningListRecordsResponses[keyof learningListRecordsResponses];
+
+export type learningCreateRecordData = {
+    body: NoteRequest;
+    path?: never;
+    query?: never;
+    url: '/api/v1/learning';
+};
+
+export type learningCreateRecordErrors = {
+    /**
+     * Validation Error
+     */
+    422: HTTPValidationError;
+};
+
+export type learningCreateRecordError = learningCreateRecordErrors[keyof learningCreateRecordErrors];
+
+export type learningCreateRecordResponses = {
+    /**
+     * Response Learning-Create Record
+     *
+     * Successful Response
+     */
+    201: {
+        [key: string]: unknown;
+    };
+};
+
+export type learningCreateRecordResponse = learningCreateRecordResponses[keyof learningCreateRecordResponses];
+
+export type learningDeleteRecordData = {
+    body?: never;
+    path: {
+        /**
+         * Record Id
+         */
+        record_id: string;
+    };
+    query?: never;
+    url: '/api/v1/learning/{record_id}';
+};
+
+export type learningDeleteRecordErrors = {
+    /**
+     * Validation Error
+     */
+    422: HTTPValidationError;
+};
+
+export type learningDeleteRecordError = learningDeleteRecordErrors[keyof learningDeleteRecordErrors];
+
+export type learningDeleteRecordResponses = {
+    /**
+     * Response Learning-Delete Record
+     *
+     * Successful Response
+     */
+    200: {
+        [key: string]: unknown;
+    };
+};
+
+export type learningDeleteRecordResponse = learningDeleteRecordResponses[keyof learningDeleteRecordResponses];
+
+export type learningCacheStatsData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/v1/learning/cache/stats';
+};
+
+export type learningCacheStatsResponses = {
+    /**
+     * Response Learning-Cache Stats
+     *
+     * Successful Response
+     */
+    200: {
+        [key: string]: unknown;
+    };
+};
+
+export type learningCacheStatsResponse = learningCacheStatsResponses[keyof learningCacheStatsResponses];
+
+export type learningCompareStoresData = {
+    body: CompareRequest;
+    path?: never;
+    query?: never;
+    url: '/api/v1/learning/compare';
+};
+
+export type learningCompareStoresErrors = {
+    /**
+     * Validation Error
+     */
+    422: HTTPValidationError;
+};
+
+export type learningCompareStoresError = learningCompareStoresErrors[keyof learningCompareStoresErrors];
+
+export type learningCompareStoresResponses = {
+    /**
+     * Response Learning-Compare Stores
+     *
+     * Successful Response
+     */
+    200: {
+        [key: string]: unknown;
+    };
+};
+
+export type learningCompareStoresResponse = learningCompareStoresResponses[keyof learningCompareStoresResponses];
+
+export type notesReadNotesData = {
+    body?: never;
+    path?: never;
+    query?: {
+        /**
+         * Skip
+         */
+        skip?: number;
+        /**
+         * Limit
+         */
+        limit?: number;
+    };
+    url: '/api/v1/notes';
+};
+
+export type notesReadNotesErrors = {
+    /**
+     * Validation Error
+     */
+    422: HTTPValidationError;
+};
+
+export type notesReadNotesError = notesReadNotesErrors[keyof notesReadNotesErrors];
+
+export type notesReadNotesResponses = {
+    /**
+     * Successful Response
+     */
+    200: NotesPublic;
+};
+
+export type notesReadNotesResponse = notesReadNotesResponses[keyof notesReadNotesResponses];
+
+export type notesCreateNoteData = {
+    body: NoteCreate;
+    path?: never;
+    query?: never;
+    url: '/api/v1/notes';
+};
+
+export type notesCreateNoteErrors = {
+    /**
+     * Validation Error
+     */
+    422: HTTPValidationError;
+};
+
+export type notesCreateNoteError = notesCreateNoteErrors[keyof notesCreateNoteErrors];
+
+export type notesCreateNoteResponses = {
+    /**
+     * Successful Response
+     */
+    201: NotePublic;
+};
+
+export type notesCreateNoteResponse = notesCreateNoteResponses[keyof notesCreateNoteResponses];
+
+export type notesDeleteNoteData = {
+    body?: never;
+    path: {
+        /**
+         * Note Id
+         */
+        note_id: string;
+    };
+    query?: never;
+    url: '/api/v1/notes/{note_id}';
+};
+
+export type notesDeleteNoteErrors = {
+    /**
+     * Validation Error
+     */
+    422: HTTPValidationError;
+};
+
+export type notesDeleteNoteError = notesDeleteNoteErrors[keyof notesDeleteNoteErrors];
+
+export type notesDeleteNoteResponses = {
+    /**
+     * Successful Response
+     */
+    204: void;
+};
+
+export type notesDeleteNoteResponse = notesDeleteNoteResponses[keyof notesDeleteNoteResponses];
+
+export type notesUpdateNoteData = {
+    body: NoteUpdate;
+    path: {
+        /**
+         * Note Id
+         */
+        note_id: string;
+    };
+    query?: never;
+    url: '/api/v1/notes/{note_id}';
+};
+
+export type notesUpdateNoteErrors = {
+    /**
+     * Validation Error
+     */
+    422: HTTPValidationError;
+};
+
+export type notesUpdateNoteError = notesUpdateNoteErrors[keyof notesUpdateNoteErrors];
+
+export type notesUpdateNoteResponses = {
+    /**
+     * Successful Response
+     */
+    200: NotePublic;
+};
+
+export type notesUpdateNoteResponse = notesUpdateNoteResponses[keyof notesUpdateNoteResponses];
+
+export type tasksReadTasksData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/v1/tasks';
+};
+
+export type tasksReadTasksResponses = {
+    /**
+     * Successful Response
+     */
+    200: StudyTasksPublic;
+};
+
+export type tasksReadTasksResponse = tasksReadTasksResponses[keyof tasksReadTasksResponses];
+
+export type tasksCreateTaskData = {
+    body: StudyTaskCreate;
+    path?: never;
+    query?: never;
+    url: '/api/v1/tasks';
+};
+
+export type tasksCreateTaskErrors = {
+    /**
+     * Validation Error
+     */
+    422: HTTPValidationError;
+};
+
+export type tasksCreateTaskError = tasksCreateTaskErrors[keyof tasksCreateTaskErrors];
+
+export type tasksCreateTaskResponses = {
+    /**
+     * Successful Response
+     */
+    201: StudyTaskPublic;
+};
+
+export type tasksCreateTaskResponse = tasksCreateTaskResponses[keyof tasksCreateTaskResponses];
+
+export type tasksDeleteTaskData = {
+    body?: never;
+    path: {
+        /**
+         * Task Id
+         */
+        task_id: string;
+    };
+    query?: never;
+    url: '/api/v1/tasks/{task_id}';
+};
+
+export type tasksDeleteTaskErrors = {
+    /**
+     * Validation Error
+     */
+    422: HTTPValidationError;
+};
+
+export type tasksDeleteTaskError = tasksDeleteTaskErrors[keyof tasksDeleteTaskErrors];
+
+export type tasksDeleteTaskResponses = {
+    /**
+     * Successful Response
+     */
+    204: void;
+};
+
+export type tasksDeleteTaskResponse = tasksDeleteTaskResponses[keyof tasksDeleteTaskResponses];
+
+export type tasksUpdateTaskData = {
+    body: StudyTaskUpdate;
+    path: {
+        /**
+         * Task Id
+         */
+        task_id: string;
+    };
+    query?: never;
+    url: '/api/v1/tasks/{task_id}';
+};
+
+export type tasksUpdateTaskErrors = {
+    /**
+     * Validation Error
+     */
+    422: HTTPValidationError;
+};
+
+export type tasksUpdateTaskError = tasksUpdateTaskErrors[keyof tasksUpdateTaskErrors];
+
+export type tasksUpdateTaskResponses = {
+    /**
+     * Successful Response
+     */
+    200: StudyTaskPublic;
+};
+
+export type tasksUpdateTaskResponse = tasksUpdateTaskResponses[keyof tasksUpdateTaskResponses];
+
+export type aigcReadAigcConfigData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/v1/aigc/config';
+};
+
+export type aigcReadAigcConfigResponses = {
+    /**
+     * Successful Response
+     */
+    200: AigcConfig;
+};
+
+export type aigcReadAigcConfigResponse = aigcReadAigcConfigResponses[keyof aigcReadAigcConfigResponses];
+
+export type aigcListAigcJobsData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/v1/aigc/jobs';
+};
+
+export type aigcListAigcJobsResponses = {
+    /**
+     * Response Aigc-List Aigc Jobs
+     *
+     * Successful Response
+     */
+    200: Array<AigcJobSummary>;
+};
+
+export type aigcListAigcJobsResponse = aigcListAigcJobsResponses[keyof aigcListAigcJobsResponses];
+
+export type aigcCreateAigcJobData = {
+    body: AigcJobCreate;
+    path?: never;
+    query?: never;
+    url: '/api/v1/aigc/jobs';
+};
+
+export type aigcCreateAigcJobErrors = {
+    /**
+     * Validation Error
+     */
+    422: HTTPValidationError;
+};
+
+export type aigcCreateAigcJobError = aigcCreateAigcJobErrors[keyof aigcCreateAigcJobErrors];
+
+export type aigcCreateAigcJobResponses = {
+    /**
+     * Successful Response
+     */
+    201: AigcJobDetail;
+};
+
+export type aigcCreateAigcJobResponse = aigcCreateAigcJobResponses[keyof aigcCreateAigcJobResponses];
+
+export type aigcCreateAigcImageJobData = {
+    body: Body_aigc_create_aigc_image_job;
+    path?: never;
+    query?: never;
+    url: '/api/v1/aigc/jobs/image';
+};
+
+export type aigcCreateAigcImageJobErrors = {
+    /**
+     * Validation Error
+     */
+    422: HTTPValidationError;
+};
+
+export type aigcCreateAigcImageJobError = aigcCreateAigcImageJobErrors[keyof aigcCreateAigcImageJobErrors];
+
+export type aigcCreateAigcImageJobResponses = {
+    /**
+     * Successful Response
+     */
+    201: AigcJobDetail;
+};
+
+export type aigcCreateAigcImageJobResponse = aigcCreateAigcImageJobResponses[keyof aigcCreateAigcImageJobResponses];
+
+export type aigcDeleteAigcJobData = {
+    body?: never;
+    path: {
+        /**
+         * Job Id
+         */
+        job_id: string;
+    };
+    query?: never;
+    url: '/api/v1/aigc/jobs/{job_id}';
+};
+
+export type aigcDeleteAigcJobErrors = {
+    /**
+     * Validation Error
+     */
+    422: HTTPValidationError;
+};
+
+export type aigcDeleteAigcJobError = aigcDeleteAigcJobErrors[keyof aigcDeleteAigcJobErrors];
+
+export type aigcDeleteAigcJobResponses = {
+    /**
+     * Successful Response
+     */
+    204: void;
+};
+
+export type aigcDeleteAigcJobResponse = aigcDeleteAigcJobResponses[keyof aigcDeleteAigcJobResponses];
+
+export type aigcReadAigcJobData = {
+    body?: never;
+    path: {
+        /**
+         * Job Id
+         */
+        job_id: string;
+    };
+    query?: never;
+    url: '/api/v1/aigc/jobs/{job_id}';
+};
+
+export type aigcReadAigcJobErrors = {
+    /**
+     * Validation Error
+     */
+    422: HTTPValidationError;
+};
+
+export type aigcReadAigcJobError = aigcReadAigcJobErrors[keyof aigcReadAigcJobErrors];
+
+export type aigcReadAigcJobResponses = {
+    /**
+     * Successful Response
+     */
+    200: AigcJobDetail;
+};
+
+export type aigcReadAigcJobResponse = aigcReadAigcJobResponses[keyof aigcReadAigcJobResponses];
+
+export type aigcCancelAigcJobData = {
+    body?: never;
+    path: {
+        /**
+         * Job Id
+         */
+        job_id: string;
+    };
+    query?: never;
+    url: '/api/v1/aigc/jobs/{job_id}/cancel';
+};
+
+export type aigcCancelAigcJobErrors = {
+    /**
+     * Validation Error
+     */
+    422: HTTPValidationError;
+};
+
+export type aigcCancelAigcJobError = aigcCancelAigcJobErrors[keyof aigcCancelAigcJobErrors];
+
+export type aigcCancelAigcJobResponses = {
+    /**
+     * Successful Response
+     */
+    200: AigcJobDetail;
+};
+
+export type aigcCancelAigcJobResponse = aigcCancelAigcJobResponses[keyof aigcCancelAigcJobResponses];
+
+export type aigcReadAigcVideoData = {
+    body?: never;
+    path: {
+        /**
+         * Job Id
+         */
+        job_id: string;
+    };
+    query?: never;
+    url: '/api/v1/aigc/jobs/{job_id}/video';
+};
+
+export type aigcReadAigcVideoErrors = {
+    /**
+     * Validation Error
+     */
+    422: HTTPValidationError;
+};
+
+export type aigcReadAigcVideoError = aigcReadAigcVideoErrors[keyof aigcReadAigcVideoErrors];
+
+export type aigcReadAigcVideoResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
 
 export type privateCreateUserData = {
     body: PrivateUserCreate;
