@@ -85,7 +85,10 @@ async function loginAsSecondAccount(page: Page) {
   await page.getByTestId("email-input").fill("b@example.com")
   await page.getByPlaceholder("Password", { exact: true }).fill("test-password")
   await page.getByRole("button", { name: "Log In", exact: true }).click()
-  await expect(page).toHaveURL("/")
+  // 登录落在工作台，工作台没有侧栏；用页面内的链接回到问答页，避免整页导航把
+  // 老账号还在飞行的请求直接 abort 掉（这几条用例正是要验证它们后来的返回）。
+  await page.waitForURL("/workspace")
+  await page.getByRole("link", { name: "返回问答工作台" }).click()
   await expect(page.getByLabel("我的账号菜单")).toContainText("账号 B")
 }
 
@@ -546,7 +549,8 @@ test.describe("authenticated chat UI with simulated responses", () => {
     await expect(page.getByText("账号 A", { exact: true })).toHaveCount(0)
     releaseOldDocuments()
     releaseNewIdentity()
-    await expect(page).toHaveURL("/")
+    await page.waitForURL("/workspace")
+    await page.goto("/chat")
     await expect(page.getByLabel("我的账号菜单")).toContainText("账号 B")
     await expect(page.getByText("账号 A", { exact: false })).toHaveCount(0)
     await page.getByRole("link", { name: "我的知识库", exact: true }).click()
@@ -599,7 +603,7 @@ test.describe("authenticated chat UI with simulated responses", () => {
           requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
         ),
     )
-    await expect(page).toHaveURL("/")
+    await expect(page).toHaveURL("/chat")
     expect(
       await page.evaluate(() => localStorage.getItem("access_token")),
     ).toBe("account-b-token")
@@ -648,7 +652,7 @@ test.describe("authenticated chat UI with simulated responses", () => {
           requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
         ),
     )
-    await expect(page).toHaveURL("/")
+    await expect(page).toHaveURL("/chat")
     expect(
       await page.evaluate(() => localStorage.getItem("access_token")),
     ).toBe("account-b-token")

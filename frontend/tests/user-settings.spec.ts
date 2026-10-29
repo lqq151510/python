@@ -246,5 +246,7 @@ test("Selected appearance is preserved across sessions", async ({ page }) => {
   await logOutUser(page)
   await logInUser(page, firstSuperuser, firstSuperuserPassword)
 
+  // 登录落在工作台（没有 .da-shell 侧栏），回到设置页再断言外观沿用。
+  await page.goto("/settings")
   await expect(page.locator(".da-shell")).toHaveClass(/da-soft/)
 })
