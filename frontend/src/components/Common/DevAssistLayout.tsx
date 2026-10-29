@@ -6,6 +6,7 @@ import {
   Code2,
   FileText,
   Image as ImageIcon,
+  Layers,
   ListChecks,
   LogOut,
   MessageSquare,
@@ -41,6 +42,13 @@ export function DevAssistLayout({ children }: { children: ReactNode }) {
           <Link to="/chat" aria-current={path === "/chat" ? "page" : undefined}>
             <MessageSquare size={22} aria-hidden="true" />
             问答工作台
+          </Link>
+          <Link
+            to="/workspace"
+            aria-current={path === "/workspace" ? "page" : undefined}
+          >
+            <Layers size={22} aria-hidden="true" />
+            一体化工作台
           </Link>
           <Link
             to="/knowledge"

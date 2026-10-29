@@ -43,9 +43,9 @@ test("Log in with valid email and password ", async ({ page }) => {
   await fillForm(page, firstSuperuser, firstSuperuserPassword)
   await page.getByRole("button", { name: "Log In" }).click()
 
-  await page.waitForURL("/")
+  await page.waitForURL("/workspace")
 
-  await expect(page.getByRole("heading", { name: "应用首页" })).toBeVisible()
+  await expect(page.locator(".zm-app")).toBeVisible()
 })
 
 test("Log in with invalid email", async ({ page }) => {
@@ -73,10 +73,11 @@ test("Successful log out", async ({ page }) => {
   await fillForm(page, firstSuperuser, firstSuperuserPassword)
   await page.getByRole("button", { name: "Log In" }).click()
 
-  await page.waitForURL("/")
+  await page.waitForURL("/workspace")
 
-  await expect(page.getByRole("heading", { name: "应用首页" })).toBeVisible()
+  await expect(page.locator(".zm-app")).toBeVisible()
 
+  await page.goto("/chat")
   await page.getByLabel("我的账号菜单").click()
   await page.getByRole("button", { name: "退出登录", exact: true }).click()
   await page.waitForURL("/login")
@@ -88,10 +89,11 @@ test("Logged-out user cannot access protected routes", async ({ page }) => {
   await fillForm(page, firstSuperuser, firstSuperuserPassword)
   await page.getByRole("button", { name: "Log In" }).click()
 
-  await page.waitForURL("/")
+  await page.waitForURL("/workspace")
 
-  await expect(page.getByRole("heading", { name: "应用首页" })).toBeVisible()
+  await expect(page.locator(".zm-app")).toBeVisible()
 
+  await page.goto("/chat")
   await page.getByLabel("我的账号菜单").click()
   await page.getByRole("button", { name: "退出登录", exact: true }).click()
   await page.waitForURL("/login")

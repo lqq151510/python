@@ -68,6 +68,7 @@ bash scripts/devassist-dev.sh
 
 - 知识库页面：http://localhost:5173/knowledge
 - 聊天页面：http://localhost:5173/chat
+- 一体化工作台：http://localhost:5173/workspace
 - 学习笔记：http://localhost:5173/notes
 - 复习清单：http://localhost:5173/tasks
 - 个人中心：http://localhost:5173/settings

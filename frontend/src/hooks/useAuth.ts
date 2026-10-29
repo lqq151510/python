@@ -64,7 +64,8 @@ const useAuth = () => {
   const loginMutation = useMutation({
     mutationFn: login,
     onSuccess: () => {
-      navigate({ to: "/" })
+      // 登录后直接进入一体化工作台，首页仍可从侧边栏进入。
+      navigate({ to: "/workspace" })
     },
     onError: handleError.bind(showErrorToast),
   })
