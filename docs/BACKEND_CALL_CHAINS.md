@@ -123,8 +123,9 @@ search_result(session, owner_id, query, limit, document_id, method, vector_store
 ├─ 指定 document_id → owned_document 先鉴权
 ├─ 一次查出该用户全部 (DocumentChunk ⋈ Document)，含 filename/heading/content
 ├─ depth = 20（hybrid）或 limit
-├─ method != vector → rank_chunks()          # 自实现 BM25：k1=1.5 b=0.5，
-│                                             # 中文按 bigram 分词，整句命中 ×2.0 加成
+├─ method != vector → rank_chunks(key=…)     # 自实现 BM25：k1=1.5 b=0.5，
+│                                             # 中文按 bigram 分词，整句命中 ×2.0 加成；
+│                                             # 分词按 chunk id 快照做进程内 LRU 缓存
 ├─ method != bm25   → semantic.vector_rank() # 见下
 │    └─ hybrid       → fuse_rankings()       # RRF，k=60
 ├─ vector 失败：method=vector 直接 503；hybrid 降级 bm25 并带 warning
@@ -378,7 +379,7 @@ sequenceDiagram
 ## 5. 已知限制与观察点
 
 1. **单轮 vs 多轮是刻意分离的**：`/chat` 每次只发当前问题，上下文能力只给 `/agent`（4 轮 + 5 步）。
-2. **检索是“小规模全量 + 内存排序”**：`search_result` 每次把该用户所有 chunk 拉进内存做 BM25；配额上限 20 文档 × 256 块 = 5,120 条。当前量级没问题，放开配额时这条链会最先出问题。
+2. **检索是“小规模全量 + 内存排序”**：`search_result` 每次把该用户所有 chunk 拉进内存做 BM25；配额上限 20 文档 × 256 块 = 5,120 条。分词结果按「这批 chunk id 的哈希」做进程内 LRU 缓存（`_CORPUS_CACHE_SIZE = 4`，一快照约 6 MiB），5,120 段的排序从 599 ms 降到约 12 ms；文档增删会换 key 自动失效。代价是缓存是进程内的，多实例各存一份，且配额放开后仍会线性增长。
 3. **线程池是硬边界**：会阻塞的同步 IO（DB 查询、文件读写、flock、worker RPC、AIGC 落盘）都显式 `run_in_threadpool` / `asyncio.to_thread`；事件循环里只留 `await`。
 4. **Python 3.14 语法**：`except InvalidTokenError, ValidationError:`（`api/deps.py`）等使用 PEP 758 的无括号多异常写法，在 3.13 及以下会 `SyntaxError`。`.python-version` 锁 3.14。
 5. **`_claim_next_job` 用 `FOR UPDATE SKIP LOCKED` 领取**：行锁覆盖「选中 → 置为 running」，被取消请求或另一执行器持有的行会被跳过而不是阻塞。SQLite 不支持该子句（SQLAlchemy 静默省略），因此锁语义只在 PostgreSQL 生效；单实例部署仍由 `exclusive_aigc_runner` 的咨询锁保证。

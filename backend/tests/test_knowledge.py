@@ -1,11 +1,18 @@
+import uuid
+
 import pytest
 
 from app.knowledge import (
+    _CORPUS_CACHE_SIZE,
     CHUNK_CHARACTERS,
     KnowledgeError,
+    _corpus_cache,
+    clear_corpus_cache,
+    corpus_key,
     parse_document,
     rank_chunks,
     split_document,
+    tokenized_corpus,
 )
 
 
@@ -101,3 +108,53 @@ def test_exact_technical_phrase_outranks_scattered_terms() -> None:
     ]
     ranked = rank_chunks("request_id timeout", documents)
     assert ranked[0][0] == 1
+
+
+def test_cached_corpus_matches_uncached_ranking() -> None:
+    clear_corpus_cache()
+    documents = [
+        "FastAPI 异步接口等待网络响应",
+        "Redis 缓存数据库结果",
+        "Docker 部署容器 timeout",
+    ]
+    key = corpus_key([uuid.uuid4() for _ in documents])
+    for query in ("fastapi 异步接口", "redis 缓存", "timeout", "astronomy"):
+        assert rank_chunks(query, documents, 5, key) == rank_chunks(query, documents)
+
+
+def test_corpus_cache_keeps_only_recent_snapshots() -> None:
+    clear_corpus_cache()
+    documents = ["alpha beta", "gamma delta"]
+    keys = [
+        corpus_key([uuid.UUID(int=index + 1), uuid.UUID(int=index + 101)])
+        for index in range(6)
+    ]
+    for key in keys:
+        tokenized_corpus(key, documents)
+    assert len(_corpus_cache) == _CORPUS_CACHE_SIZE
+    assert keys[-1] in _corpus_cache
+    assert keys[0] not in _corpus_cache
+
+
+def test_corpus_cache_is_lru_by_access() -> None:
+    clear_corpus_cache()
+    documents = ["alpha beta"]
+    keys = [
+        corpus_key([uuid.UUID(int=index + 1), uuid.UUID(int=index + 101)])
+        for index in range(5)
+    ]
+    for key in keys[:4]:
+        tokenized_corpus(key, documents)
+    tokenized_corpus(keys[0], documents)
+    tokenized_corpus(keys[4], documents)
+    assert keys[0] in _corpus_cache
+    assert keys[1] not in _corpus_cache
+
+
+def test_snapshot_change_invalidates_the_cache() -> None:
+    clear_corpus_cache()
+    chunk_ids = [uuid.uuid4(), uuid.uuid4()]
+    first = corpus_key(chunk_ids)
+    assert corpus_key([*chunk_ids]) == first
+    assert corpus_key([chunk_ids[0], uuid.uuid4()]) != first
+    assert corpus_key([chunk_ids[0]]) != first

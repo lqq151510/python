@@ -4,7 +4,7 @@ import hashlib
 import math
 import re
 import uuid
-from collections import Counter
+from collections import Counter, OrderedDict
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Literal
@@ -181,14 +181,58 @@ def tokenize(text: str) -> list[str]:
     return tokens
 
 
+# 分词是这条链上最贵的步骤（5,000 段约 0.5 s），而片段的文本一旦写入就不再变化。
+# 按「这一批片段 ID」缓存分词结果：新增或删除文档都会换 key，旧条目自然过期。
+_CORPUS_CACHE_SIZE = 4
+_corpus_cache: OrderedDict[str, tuple[list[Counter[str]], list[str]]] = OrderedDict()
+
+
+def corpus_key(chunk_ids: list[uuid.UUID]) -> str:
+    digest = hashlib.blake2b(digest_size=16)
+    for chunk_id in chunk_ids:
+        digest.update(chunk_id.bytes)
+    return f"{len(chunk_ids)}:{digest.hexdigest()}"
+
+
+def tokenized_corpus(
+    key: str, contents: list[str]
+) -> tuple[list[Counter[str]], list[str]]:
+    """返回 (每段的词频, 每段归一化文本)；同一快照只分词一次。"""
+    cached = _corpus_cache.get(key)
+    if cached is not None:
+        _corpus_cache.move_to_end(key)
+        return cached
+    counts = [Counter(tokenize(content)) for content in contents]
+    normalized = [" ".join(content.casefold().split()) for content in contents]
+    value = (counts, normalized)
+    _corpus_cache[key] = value
+    _corpus_cache.move_to_end(key)
+    while len(_corpus_cache) > _CORPUS_CACHE_SIZE:
+        _corpus_cache.popitem(last=False)
+    return value
+
+
+def clear_corpus_cache() -> None:
+    _corpus_cache.clear()
+
+
 def rank_chunks(
-    query: str, contents: list[str], limit: int = 5
+    query: str,
+    contents: list[str],
+    limit: int = 5,
+    key: str | None = None,
 ) -> list[tuple[int, float]]:
     terms = set(tokenize(query)[:256])
     if not terms or not contents:
         return []
     normalized_query = " ".join(query.casefold().split())
-    counts = [Counter(tokenize(content)) for content in contents]
+    counts: list[Counter[str]]
+    normalized: list[str]
+    if key is None:
+        counts = [Counter(tokenize(content)) for content in contents]
+        normalized = [" ".join(content.casefold().split()) for content in contents]
+    else:
+        counts, normalized = tokenized_corpus(key, contents)
     lengths = [sum(count.values()) for count in counts]
     average = sum(lengths) / len(lengths) or 1
     frequencies = {term: sum(term in count for count in counts) for term in terms}
@@ -212,9 +256,7 @@ def rank_chunks(
                 )
             )
         if score > 0:
-            if len(terms) > 1 and normalized_query in " ".join(
-                contents[index].casefold().split()
-            ):
+            if len(terms) > 1 and normalized_query in normalized[index]:
                 score *= EXACT_PHRASE_BOOST
             results.append((index, score))
     return sorted(results, key=lambda result: (-result[1], result[0]))[:limit]
@@ -257,7 +299,11 @@ def search_result(
     rows = session.exec(statement).all()
     texts = [f"{doc.filename}\n{chunk.heading}\n{chunk.content}" for chunk, doc in rows]
     depth = 20 if method == "hybrid" else limit
-    ranked = rank_chunks(query, texts, depth) if method != "vector" else []
+    ranked = (
+        rank_chunks(query, texts, depth, corpus_key([chunk.id for chunk, _ in rows]))
+        if method != "vector"
+        else []
+    )
     actual_method, warning = method, None
     cache_info: dict[str, str] = {}
     if rows and method != "bm25":
