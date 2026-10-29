@@ -18,10 +18,21 @@ def client():
 def rank(namespace, identifiers, texts, vectors, query, limit):
     connection = client()
     name = os.environ.get("ZEBAO_MILVUS_COLLECTION", "devassist_text_v1")
-    if not connection.has_collection(name, timeout=5):
+    dimension = len(vectors[0])
+    collection_exists = connection.has_collection(name, timeout=5)
+    if collection_exists:
+        schema = connection.describe_collection(name, timeout=5)
+        vector_field = next(
+            field for field in schema["fields"] if field["name"] == "vector"
+        )
+        if int(vector_field["params"]["dim"]) != dimension:
+            # SQL owns the source text; only derived vectors are rebuilt here.
+            connection.drop_collection(name, timeout=15)
+            collection_exists = False
+    if not collection_exists:
         connection.create_collection(
             name,
-            dimension=len(vectors[0]),
+            dimension=dimension,
             primary_field_name="id",
             id_type="string",
             max_length=64,

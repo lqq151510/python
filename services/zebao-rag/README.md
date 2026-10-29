@@ -36,7 +36,7 @@ uv run --project services/zebao-rag zebao-rag sessions
 ```
 
 多模态检索、Ollama Agent、会话 JSON 和摘要压缩仍属于本地 CLI。
-网页当前接入的是 Markdown/TXT 文档的向量及混合检索；网页图片上传与持久化对话尚未接入。
+DevAssist 网页已接入 Markdown/TXT 知识库，并在 `/images` 提供图片上传与检索。这份 CLI 仍按主题集合隔离，持久化多轮对话不在此 CLI 的网页接口里。
 CLI 按主题集合隔离，不能作为多用户 HTTP 接口直接暴露。
 
 本次没有导入原项目的 `data/`、`chroma_db/`、`.venv/`、权重或含个人内容的脚本。
@@ -79,4 +79,4 @@ Milvus 服务为 2.4 系列，Python SDK 与 Setuptools 依赖已在本模块锁
 uv run --project services/zebao-rag zebao-rag code "用 FastAPI 写健康检查接口"
 ```
 
-默认模型为 `mellum2.1-q6k:latest`，可通过 `ZEBAO_RAG_CODE_MODEL` 更改；服务地址使用 `OLLAMA_BASE_URL`。该命令仅返回文本，不操作文件或执行命令，与网页编程工作台的 `CODE_*` 配置相互独立。模型是否可用需以本机实际安装状态为准。
+默认模型为 `mellum2.1-q6k:latest`，可通过 `ZEBAO_RAG_CODE_MODEL` 更改；服务地址使用 `OLLAMA_BASE_URL`。该命令仅返回文本，不操作文件或执行命令，与网页编程工作台的 `CODE_*` 配置相互独立。请求会直连配置的服务地址，不使用环境代理。模型是否可用需以本机实际安装状态为准。

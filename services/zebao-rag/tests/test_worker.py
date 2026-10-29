@@ -2,13 +2,17 @@
 
 import base64
 import json
+import os
+import tempfile
 import threading
 import unittest
 from http.server import ThreadingHTTPServer
+from unittest.mock import patch
 from urllib.error import HTTPError
 from urllib.request import ProxyHandler, Request, build_opener
 
 from pydantic import ValidationError
+from zebao_rag import milvus_store
 from zebao_rag.worker import Embedder, Ranker, RankRequest, handler_type
 
 
@@ -143,6 +147,39 @@ class EmbedTests(unittest.TestCase):
             server.shutdown()
             server.server_close()
             thread.join()
+
+
+class MilvusStoreTests(unittest.TestCase):
+    def test_embedding_dimension_change_rebuilds_derived_index(self):
+        with tempfile.TemporaryDirectory() as directory:
+            environment = {
+                "ZEBAO_MILVUS_URL": os.path.join(directory, "index.db"),
+                "ZEBAO_MILVUS_COLLECTION": "test_dimension_change",
+            }
+            with patch.dict(os.environ, environment):
+                milvus_store.client.cache_clear()
+                try:
+                    first = milvus_store.rank(
+                        "test-owner",
+                        ["a"],
+                        ["alpha"],
+                        [[1.0, 0.0]],
+                        [[1.0, 0.0]],
+                        1,
+                    )
+                    self.assertEqual(first, [{"id": "a", "score": 1.0}])
+                    second = milvus_store.rank(
+                        "test-owner",
+                        ["a"],
+                        ["alpha"],
+                        [[1.0, 0.0, 0.0]],
+                        [[1.0, 0.0, 0.0]],
+                        1,
+                    )
+                    self.assertEqual(second, [{"id": "a", "score": 1.0}])
+                finally:
+                    milvus_store.client().close()
+                    milvus_store.client.cache_clear()
 
 
 if __name__ == "__main__":

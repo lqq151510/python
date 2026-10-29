@@ -1,11 +1,15 @@
 """Bounded, local code generation through the configured Ollama model."""
 from __future__ import annotations
 
-import re
-
 import httpx
 
-from .config import CODE_MAX_TOKENS, CODE_MODEL, CODE_NUM_CTX, CODE_TIMEOUT_S, OLLAMA_BASE_URL
+from .config import (
+    CODE_MAX_TOKENS,
+    CODE_MODEL,
+    CODE_NUM_CTX,
+    CODE_TIMEOUT_S,
+    OLLAMA_BASE_URL,
+)
 
 CODE_SYSTEM_PROMPT = """你是泽宝的本地编程助手，擅长 Python、AI 应用和 RAG 工程。
 
@@ -25,12 +29,13 @@ def _final_content(message: object) -> str:
     if not isinstance(content, str):
         return ""
 
-    # Some runtimes include thinking tags in content instead of a separate field.
-    if "</think>" in content:
-        content = content.rsplit("</think>", maxsplit=1)[-1]
-    elif "<think>" in content:
-        content = content.split("<think>", maxsplit=1)[0]
-    content = re.sub(r"<think>.*?</think>", "", content, flags=re.DOTALL)
+    # Only remove leading reasoning blocks; tags inside generated code are data.
+    content = content.lstrip()
+    while content.startswith("<think>"):
+        end = content.find("</think>", len("<think>"))
+        if end < 0:
+            return ""
+        content = content[end + len("</think>"):].lstrip()
     return content.strip()
 
 
@@ -63,11 +68,14 @@ def generate_code(task: str) -> str:
             f"{OLLAMA_BASE_URL}/api/chat",
             json=payload,
             timeout=CODE_TIMEOUT_S,
+            trust_env=False,
         )
     except httpx.ConnectError as exc:
         raise CodeGenerationError("无法连接本机 Ollama，请先启动 Ollama 服务。") from exc
     except httpx.TimeoutException as exc:
         raise CodeGenerationError("模型生成超时，请缩小需求后重试。") from exc
+    except httpx.RequestError as exc:
+        raise CodeGenerationError("Ollama 通信失败，请检查服务后重试。") from exc
 
     try:
         response.raise_for_status()
