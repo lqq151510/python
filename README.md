@@ -39,7 +39,7 @@ Milvus 提供应用向量检索，Chroma 用于同模型同资料的本地对照
 
 默认在三项代码模型配置都为空时，复用已有 DeepSeek Chat Completions 配置。要换服务，在根目录 `.env` 设置 `CODE_API_FORMAT`、`CODE_BASE_URL` 和 `CODE_MODEL`；第三方服务再设置 `CODE_API_KEY`。配置示例见 `.env.example`。本地 Ollama 使用 `openai_chat_completions` 和 `http://127.0.0.1:11434/v1`，密钥可以留空。第三方 OpenAI 兼容服务同样用这个格式，但必须在 `.env` 填写自己的密钥。Responses、Anthropic Messages 和 Gemini 仍然可用。项目只调用文本生成接口，不启用模型侧工具。
 
-编程工作区只按当前登录账号读写应用维护的目录，初始文件来自用户上传的 UTF-8 代码或文本文档。上传上限为每个文件 512 KiB、每账号 50 个文件/4 MiB；每次模型请求最多读取 20 个勾选文件、总计 64 KiB。候选改动写入前需经过权限检查和人工确认。完整权限仅涵盖应用沙箱；本版本没有终端命令执行能力，也不会读取用户主机上的项目目录。
+编程工作区只按当前登录账号读写应用维护的目录。文件可以来自上传、公开 GitHub 仓库导入，或在页面里新建、编辑和删除。上传上限为每个文件 512 KiB、每账号 50 个文件/4 MiB；每次模型请求最多读取 20 个勾选文件、总计 64 KiB。批量应用模型候选改动时，界面会检查权限和确认状态；服务端校验每个文件的预览版本，发生冲突时整批拒绝。应用进程在支持文件锁的本地文件系统上协调写入；直接修改磁盘的外部程序不受此锁保护。用户仍可手动编辑沙箱文件；版本校验不证明已完整审阅差异。完整权限仅涵盖应用沙箱；本版本没有终端命令执行能力，也不会读取用户主机上的项目目录。
 
 | `CODE_API_FORMAT` | 服务端请求格式 | 说明 |
 |---|---|---|
@@ -68,6 +68,10 @@ bash scripts/devassist-dev.sh
 
 - 知识库页面：http://localhost:5173/knowledge
 - 聊天页面：http://localhost:5173/chat
+- 学习笔记：http://localhost:5173/notes
+- 复习清单：http://localhost:5173/tasks
+- 个人中心：http://localhost:5173/settings
+- 图片检索：http://localhost:5173/images
 - 接口文档：http://127.0.0.1:8000/docs
 - OpenAPI 描述：http://127.0.0.1:8000/api/v1/openapi.json
 - 模板存活检查：`GET /api/v1/utils/health-check/`
@@ -94,9 +98,13 @@ bash scripts/devassist-dev.sh
 | `GET /api/v1/code/config` | 返回非敏感的代码模型格式、模型名和配置状态 |
 | `GET /api/v1/code/workspace` | 列出当前用户的沙箱文件 |
 | `GET /api/v1/code/workspace/files/{path}` | 读取当前用户沙箱中的受限文本文件 |
+| `PUT /api/v1/code/workspace/files` | 新建或保存当前账号沙箱中的一个文本文件 |
+| `DELETE /api/v1/code/workspace/files/{path}` | 删除当前账号沙箱中的一个文本文件 |
 | `POST /api/v1/code/workspace/files` | multipart `files` 上传，最多 10 个代码/文本附件 |
+| `POST /api/v1/code/workspace/github` | 导入一个公开 GitHub 仓库的默认分支文本文件 |
+| `POST /api/v1/code/workspace/diff` | 按行对照候选内容与当前沙箱文件 |
 | `POST /api/v1/code/generate` | 根据 Goal、任务和选中文件生成计划及候选改动 |
-| `POST /api/v1/code/workspace/apply` | 经权限及确认字段校验后写入候选改动 |
+| `POST /api/v1/code/workspace/apply` | 每项携带差异预览返回的 `base_version`；文件变化时返回 `409 workspace_conflict`，整批不写入 |
 
 上传及模型生成均有请求体、文件数、上下文长度、输出文件数和超时上限。所有接口只操作当前账号的沙箱；模型服务 API Key 不返回给前端。
 

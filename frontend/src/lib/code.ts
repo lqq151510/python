@@ -8,6 +8,12 @@ export type CodeApiFormat =
   | "anthropic_messages"
   | "gemini_generate_content"
 
+export interface CodeFileSnapshot {
+  path: string
+  content: string
+  base_version: string
+}
+
 export interface CodeWorkspaceFile {
   path: string
   size_bytes: number
@@ -21,6 +27,10 @@ export interface CodeWorkspace {
 export interface CodeFileEdit {
   path: string
   content: string
+}
+
+export interface CodeApplyEdit extends CodeFileEdit {
+  base_version: string
 }
 
 export interface CodeGeneration {
@@ -41,11 +51,7 @@ export interface CodeModelConfig {
 const security = [{ scheme: "bearer", type: "http" }] as const
 
 export async function getCodeWorkspace(): Promise<CodeWorkspace> {
-  const response = await client.request<
-    { 200: CodeWorkspace },
-    unknown,
-    true
-  >({
+  const response = await client.request<{ 200: CodeWorkspace }, unknown, true>({
     method: "GET",
     url: "/api/v1/code/workspace",
     security: [...security],
@@ -70,13 +76,21 @@ export async function getCodeModelConfig(): Promise<CodeModelConfig> {
   return response.data
 }
 
-export async function importGithubRepository(repository: string): Promise<CodeWorkspace & {
-  imported: number
-  repository: string
-  branch: string
-}> {
+export async function importGithubRepository(repository: string): Promise<
+  CodeWorkspace & {
+    imported: number
+    repository: string
+    branch: string
+  }
+> {
   const response = await client.request<
-    { 200: CodeWorkspace & { imported: number; repository: string; branch: string } },
+    {
+      200: CodeWorkspace & {
+        imported: number
+        repository: string
+        branch: string
+      }
+    },
     unknown,
     true
   >({
@@ -94,11 +108,7 @@ export async function importGithubRepository(repository: string): Promise<CodeWo
 export async function uploadCodeFiles(files: File[]): Promise<CodeWorkspace> {
   const body = new FormData()
   for (const file of files) body.append("files", file, file.name)
-  const response = await client.request<
-    { 200: CodeWorkspace },
-    unknown,
-    true
-  >({
+  const response = await client.request<{ 200: CodeWorkspace }, unknown, true>({
     method: "POST",
     url: "/api/v1/code/workspace/files",
     security: [...security],
@@ -109,10 +119,10 @@ export async function uploadCodeFiles(files: File[]): Promise<CodeWorkspace> {
   return response.data
 }
 
-export async function readCodeFile(path: string): Promise<string> {
+export async function readCodeFile(path: string): Promise<CodeFileSnapshot> {
   const encodedPath = path.split("/").map(encodeURIComponent).join("/")
   const response = await client.request<
-    { 200: { path: string; content: string } },
+    { 200: CodeFileSnapshot },
     unknown,
     true
   >({
@@ -122,14 +132,26 @@ export async function readCodeFile(path: string): Promise<string> {
     timeout: 15_000,
     throwOnError: true,
   })
-  return response.data.content
+  if (
+    response.data.path !== path ||
+    typeof response.data.content !== "string" ||
+    typeof response.data.base_version !== "string" ||
+    !/^sha256:[0-9a-f]{64}$/.test(response.data.base_version)
+  ) {
+    throw new Error("文件快照无效，请重新加载。")
+  }
+  return response.data
 }
 
-export async function saveCodeFile(path: string, content: string): Promise<CodeWorkspace> {
+export async function saveCodeFile(
+  path: string,
+  content: string,
+  baseVersion: string,
+): Promise<CodeWorkspace> {
   const response = await client.request<{ 200: CodeWorkspace }, unknown, true>({
     method: "PUT",
     url: "/api/v1/code/workspace/files",
-    body: { path, content },
+    body: { path, content, base_version: baseVersion },
     headers: { "Content-Type": "application/json" },
     security: [...security],
     timeout: 30_000,
@@ -159,9 +181,14 @@ export interface CodeDiff {
   status: "new" | "unchanged" | "changed"
   lines: CodeDiffLine[]
   truncated: boolean
+  base_version: string
 }
 
-export async function reviewCodeDiff(path: string, content: string, full = false): Promise<CodeDiff> {
+export async function reviewCodeDiff(
+  path: string,
+  content: string,
+  full = false,
+): Promise<CodeDiff> {
   const response = await client.request<{ 200: CodeDiff }, unknown, true>({
     method: "POST",
     url: "/api/v1/code/workspace/diff",
@@ -171,6 +198,12 @@ export async function reviewCodeDiff(path: string, content: string, full = false
     timeout: 15_000,
     throwOnError: true,
   })
+  if (
+    typeof response.data.base_version !== "string" ||
+    !/^(missing|sha256:[0-9a-f]{64})$/.test(response.data.base_version)
+  ) {
+    throw new Error("预览缺少有效的文件版本，请重试。")
+  }
   return response.data
 }
 
@@ -182,40 +215,34 @@ export async function generateCode(input: {
   fullPermissionsAcknowledged: boolean
   workspacePaths: string[]
 }): Promise<CodeGeneration> {
-  const response = await client.request<
-    { 200: CodeGeneration },
-    unknown,
-    true
-  >({
-    method: "POST",
-    url: "/api/v1/code/generate",
-    body: {
-      task: input.task,
-      goal: input.goal,
-      plan_only: input.planOnly,
-      permission: input.permission,
-      full_permissions_acknowledged: input.fullPermissionsAcknowledged,
-      workspace_paths: input.workspacePaths,
+  const response = await client.request<{ 200: CodeGeneration }, unknown, true>(
+    {
+      method: "POST",
+      url: "/api/v1/code/generate",
+      body: {
+        task: input.task,
+        goal: input.goal,
+        plan_only: input.planOnly,
+        permission: input.permission,
+        full_permissions_acknowledged: input.fullPermissionsAcknowledged,
+        workspace_paths: input.workspacePaths,
+      },
+      headers: { "Content-Type": "application/json" },
+      security: [...security],
+      timeout: 90_000,
+      throwOnError: true,
     },
-    headers: { "Content-Type": "application/json" },
-    security: [...security],
-    timeout: 90_000,
-    throwOnError: true,
-  })
+  )
   return response.data
 }
 
 export async function applyCodeEdits(input: {
-  edits: CodeFileEdit[]
+  edits: CodeApplyEdit[]
   permission: CodePermission
   approved: boolean
   fullPermissionsAcknowledged: boolean
 }): Promise<CodeWorkspace> {
-  const response = await client.request<
-    { 200: CodeWorkspace },
-    unknown,
-    true
-  >({
+  const response = await client.request<{ 200: CodeWorkspace }, unknown, true>({
     method: "POST",
     url: "/api/v1/code/workspace/apply",
     body: {
@@ -232,6 +259,14 @@ export async function applyCodeEdits(input: {
   return response.data
 }
 
+export function isWorkspaceConflict(error: unknown): boolean {
+  return (
+    isAxiosError(error) &&
+    error.response?.status === 409 &&
+    error.response.data?.detail?.code === "workspace_conflict"
+  )
+}
+
 export function describeCodeError(error: unknown): string {
   if (isAxiosError(error)) {
     if (!error.response) return "无法连接代码服务，请确认后端已启动。"
@@ -240,5 +275,7 @@ export function describeCodeError(error: unknown): string {
     if (typeof detail === "string") return detail
     if (error.response.status === 401) return "登录已失效，请重新登录。"
   }
-  return error instanceof Error ? error.message : "代码工作区操作失败，请稍后重试。"
+  return error instanceof Error
+    ? error.message
+    : "代码工作区操作失败，请稍后重试。"
 }

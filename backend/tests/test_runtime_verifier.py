@@ -116,3 +116,47 @@ def test_matching_api_identity_is_required_before_signup(verifier_module, monkey
             )
     finally:
         verifier.client.close()
+
+
+def test_workspace_verifier_checks_real_route_conflicts_without_database(
+    verifier_module, monkeypatch, tmp_path
+):
+    import uuid
+    from types import SimpleNamespace
+
+    from fastapi import FastAPI, Request
+    from fastapi.testclient import TestClient
+
+    from app.api.deps import get_current_user
+    from app.api.routes.code import router
+    from app.core.config import settings
+
+    first_owner, second_owner = uuid.uuid4(), uuid.uuid4()
+    monkeypatch.setattr(settings, "CODE_WORKSPACE_DIR", tmp_path / "workspace")
+    app = FastAPI()
+    app.include_router(router, prefix="/api/v1")
+
+    def identity(request: Request):
+        owner = first_owner if request.headers.get("Authorization") == "Bearer first" else second_owner
+        return SimpleNamespace(id=owner)
+
+    app.dependency_overrides[get_current_user] = identity
+
+    @app.middleware("http")
+    async def request_id(request: Request, call_next):
+        request.state.request_id = "offline-test"
+        return await call_next(request)
+
+    report = {"checks": [], "synthetic_accounts": []}
+    verifier = verifier_module.RuntimeVerifier("http://testserver/api/v1", report)
+    verifier.client.close()
+    with TestClient(app, base_url="http://testserver/api/v1/") as client:
+        verifier.client = client
+        verifier.verify_workspace("first", "second", "synthetic")
+    assert all(check["passed"] for check in report["checks"])
+    assert {check["name"] for check in report["checks"]} >= {
+        "workspace_manual_conflict",
+        "workspace_apply_conflict",
+        "workspace_conflict_other_read",
+        "workspace_apply",
+    }
