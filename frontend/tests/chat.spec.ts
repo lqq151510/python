@@ -178,6 +178,36 @@ test.describe("authenticated chat UI with simulated responses", () => {
     await expect(answer).toHaveCount(0)
   })
 
+  test("sends a question over plain HTTP where crypto.randomUUID is missing", async ({
+    page,
+  }) => {
+    // `crypto.randomUUID` only exists in a secure context. Serving the app from a
+    // LAN IP, a container hostname or plain HTTP hides it, and a direct call threw
+    // before the request ever left the browser.
+    await page.addInitScript(() => {
+      Object.defineProperty(Crypto.prototype, "randomUUID", {
+        configurable: true,
+        value: undefined,
+      })
+    })
+    let requestId: unknown
+    await page.route("**/api/v1/chat", (route) => {
+      requestId = route.request().postDataJSON().client_request_id
+      return route.fulfill({
+        json: { answer: "非安全上下文回答", request_id: "insecure-001" },
+      })
+    })
+    await page.goto("/chat")
+    await page.getByLabel("你的问题", { exact: true }).fill("非安全上下文")
+    await page.getByRole("button", { name: "发送问题" }).click()
+    await expect(page.getByRole("region", { name: "AI 回答" })).toContainText(
+      "非安全上下文回答",
+    )
+    expect(requestId).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
+    )
+  })
+
   test("counts Unicode code points at the accepted 4000-character boundary", async ({
     page,
   }) => {
@@ -1043,7 +1073,9 @@ test.describe("authenticated chat UI with simulated responses", () => {
     await expect(main).toContainText("相对当前文件有改动")
     await expect(main.getByRole("checkbox")).toBeEnabled()
     await apply.click()
-    expect(applied.sort()).toEqual(["main.py", "new.py"])
+    // The apply request is fulfilled by a route handler, which runs after the
+    // click resolves; poll instead of reading the variable synchronously.
+    await expect.poll(() => applied.sort()).toEqual(["main.py", "new.py"])
   })
 
   test("full permission applies only successfully reviewed files", async ({
