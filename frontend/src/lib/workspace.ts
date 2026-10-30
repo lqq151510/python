@@ -1,11 +1,7 @@
-import { type CodeWorkspaceFile, getCodeWorkspace } from "@/lib/code"
-import { type ImageRecord, listImages } from "@/lib/images"
-import {
-  type DocumentRecord,
-  type KnowledgeSource,
-  listDocuments,
-} from "@/lib/knowledge"
-import { listNotes, type NoteRecord } from "@/lib/notes"
+import type { CodeWorkspaceFile } from "@/lib/code"
+import type { ImageRecord } from "@/lib/images"
+import type { DocumentRecord, KnowledgeSource } from "@/lib/knowledge"
+import type { NoteRecord } from "@/lib/notes"
 
 export type WsKind = "doc" | "note" | "image" | "code"
 export type WsScope = "all" | WsKind
@@ -36,6 +32,7 @@ export interface WsDataset {
   totalCodeBytes: number
   documentTotal: number
   noteTotal: number
+  failedSources: WsKind[]
 }
 
 export const KIND_LABEL: Record<WsKind, string> = {
@@ -143,25 +140,7 @@ export function buildDataset(input: {
     totalCodeBytes: input.code.total_bytes,
     documentTotal: input.documents.length,
     noteTotal: input.notes.length,
-  }
-}
-
-export async function loadDataset(): Promise<WsDataset> {
-  const [documents, notes, images, code] = await Promise.all([
-    listDocuments(),
-    listNotes(),
-    listImages(),
-    getCodeWorkspace(),
-  ])
-  return {
-    ...buildDataset({
-      documents: documents.data,
-      notes: notes.data,
-      images: images.data,
-      code,
-    }),
-    documentTotal: documents.count,
-    noteTotal: notes.count,
+    failedSources: [],
   }
 }
 
@@ -339,5 +318,6 @@ export interface AskTurn {
   answer?: string
   sources?: KnowledgeSource[]
   error?: string
+  errorCode?: string
   pending?: boolean
 }

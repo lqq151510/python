@@ -139,8 +139,51 @@ async function mockWorkspace(page: Page) {
   })
 }
 
+async function emptySourcesForSecondAccount(page: Page) {
+  await page.route(
+    /\/api\/v1\/(documents|notes|images|code\/workspace)(\?.*)?$/,
+    async (route) => {
+      if (
+        route.request().headers().authorization !== "Bearer account-b-token"
+      ) {
+        await route.fallback()
+        return
+      }
+      const code = /\/code\/workspace$/.test(
+        new URL(route.request().url()).pathname,
+      )
+      await route.fulfill({
+        json: code ? { files: [], total_bytes: 0 } : { data: [], count: 0 },
+      })
+    },
+  )
+}
+
+async function switchAccountInOtherTab(page: Page) {
+  const other = await page.context().newPage()
+  try {
+    await other.route("**/api/**", (route) => route.abort())
+    await other.route("**/session-switch-test", (route) =>
+      route.fulfill({ contentType: "text/html", body: "<!doctype html>" }),
+    )
+    await other.goto(new URL("/session-switch-test", page.url()).href)
+    await other.evaluate(() =>
+      localStorage.setItem("access_token", "account-b-token"),
+    )
+  } finally {
+    await other.close()
+  }
+}
+
+test.use({ storageState: { cookies: [], origins: [] } })
+
 test.beforeEach(async ({ page }) => {
   chatBody = undefined
+  await page.addInitScript(() => {
+    if (sessionStorage.getItem("workspace-ui-test-initialized")) return
+    localStorage.setItem("access_token", "workspace-ui-test-token")
+    sessionStorage.setItem("workspace-ui-test-initialized", "true")
+  })
   await mockWorkspace(page)
 })
 
@@ -155,6 +198,137 @@ test("工作台一次展示知识源、结果列表与代码工作台", async ({
     "retrieval.py",
   )
   await expect(page.locator(".zm-status")).toContainText("已索引 3 条资料")
+})
+
+test("代码服务不可用时文档仍可检索，并提供重试", async ({ page }) => {
+  let attempts = 0
+  await page.route(/\/api\/v1\/code\/workspace$/, async (route) => {
+    attempts += 1
+    if (attempts === 1) {
+      await route.fulfill({ status: 500, json: { detail: "unavailable" } })
+      return
+    }
+    await route.fulfill({
+      json: { files: [codeFile], total_bytes: codeFile.size_bytes },
+    })
+  })
+  await page.goto("/workspace")
+  await expect(page.getByRole("alert")).toContainText("代码加载失败")
+  await expect(page.getByRole("button", { name: "重试加载" })).toBeVisible()
+  await page.locator("#zm-search-input").fill("评估")
+  await expect(page.locator(".zm-result").first()).toContainText("rag-eval.md")
+  await page.locator(".zm-result").first().click()
+  await expect(page.locator(".zm-reader__title")).toHaveText("rag-eval.md")
+  await page.getByRole("button", { name: "重试加载" }).click()
+  await expect(page.getByRole("alert")).toHaveCount(0)
+  await expect(page.locator(".zm-tree__row").first()).toContainText(
+    "retrieval.py",
+  )
+})
+
+test("代码服务请求尚未返回时文档仍可检索和阅读", async ({ page }) => {
+  let release!: () => void
+  const pending = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  let requestStarted!: () => void
+  const started = new Promise<void>((resolve) => {
+    requestStarted = resolve
+  })
+  await page.route(/\/api\/v1\/code\/workspace$/, async (route) => {
+    requestStarted()
+    await pending
+    await route.fulfill({ json: { files: [], total_bytes: 0 } })
+  })
+  try {
+    await page.goto("/workspace")
+    await started
+    await page.locator("#zm-search-input").fill("评估")
+    const result = page.locator(".zm-result").first()
+    await expect(result).toContainText("rag-eval.md", { timeout: 5000 })
+    await result.click()
+    await expect(page.locator(".zm-reader__title")).toHaveText("rag-eval.md")
+  } finally {
+    release()
+  }
+})
+
+test("文档列表失败时仍可打开文档搜索结果", async ({ page }) => {
+  await page.route(/\/api\/v1\/documents(\?.*)?$/, async (route) => {
+    await route.fulfill({ status: 500, json: { detail: "unavailable" } })
+  })
+  await page.goto("/workspace")
+  await expect(page.getByRole("alert")).toContainText("文档加载失败")
+  await page.locator("#zm-search-input").fill("评估")
+  const result = page.locator(".zm-result").first()
+  await expect(result).toContainText("rag-eval.md")
+  await result.click()
+  await expect(page.locator(".zm-reader__title")).toHaveText("rag-eval.md")
+  await expect(page.getByText("召回与排序", { exact: true })).toBeVisible()
+})
+
+test("全部列表仍在加载时已返回的搜索结果可以阅读", async ({ page }) => {
+  let release!: () => void
+  const pending = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  let allStarted!: () => void
+  const started = new Promise<void>((resolve) => {
+    allStarted = resolve
+  })
+  let count = 0
+  for (const pattern of [
+    /\/api\/v1\/documents(\?.*)?$/,
+    /\/api\/v1\/notes$/,
+    /\/api\/v1\/images$/,
+    /\/api\/v1\/code\/workspace$/,
+  ]) {
+    await page.route(pattern, async (route) => {
+      count += 1
+      if (count === 4) allStarted()
+      await pending
+      await route.fulfill({ status: 503, json: { detail: "unavailable" } })
+    })
+  }
+  try {
+    await page.goto("/workspace")
+    await started
+    await page.locator("#zm-search-input").fill("评估")
+    const result = page.locator(".zm-result").first()
+    await expect(result).toContainText("rag-eval.md", { timeout: 5000 })
+    await result.click()
+    await expect(page.getByText("召回与排序", { exact: true })).toBeVisible()
+  } finally {
+    release()
+  }
+})
+
+test("文档列表失败时可以打开回答中的另一篇来源", async ({ page }) => {
+  const otherId = "55555555-5555-4555-8555-555555555555"
+  const otherDocument = { ...document, id: otherId, filename: "other.md" }
+  const otherSource = { ...source, document_id: otherId, filename: "other.md" }
+  await page.route(/\/api\/v1\/documents(\?.*)?$/, async (route) => {
+    await route.fulfill({ status: 500, json: { detail: "unavailable" } })
+  })
+  await page.route(`**/api/v1/documents/${otherId}`, async (route) => {
+    await route.fulfill({ json: { document: otherDocument, chunks: [chunk] } })
+  })
+  await page.route("**/api/v1/chat", async (route) => {
+    await route.fulfill({
+      json: {
+        answer: "请查看来源。",
+        request_id: "test",
+        sources: [otherSource],
+      },
+    })
+  })
+  await page.goto("/workspace")
+  await expect(page.getByRole("alert")).toContainText("文档加载失败")
+  await page.locator("#zm-ask-input").fill("查看其他资料")
+  await page.getByRole("button", { name: "发送", exact: true }).click()
+  await page.locator(".zm-turn__source").filter({ hasText: "other.md" }).click()
+  await expect(page.locator(".zm-reader__title")).toHaveText("other.md")
+  await expect(page.getByText("召回与排序", { exact: true })).toBeVisible()
 })
 
 test("检索文档并在阅读视图打开，引用后提问带上文档范围", async ({ page }) => {
@@ -182,7 +356,387 @@ test("检索文档并在阅读视图打开，引用后提问带上文档范围",
   expect(chatBody).toMatchObject({
     use_documents: true,
     document_id: DOCUMENT_ID,
+    client_request_id: expect.stringMatching(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
+    ),
   })
+})
+
+test("引用两篇文档时提问只传所选文档范围", async ({ page }) => {
+  const otherId = "55555555-5555-4555-8555-555555555555"
+  const otherDocument = { ...document, id: otherId, filename: "other.md" }
+  await page.route(/\/api\/v1\/documents(\?.*)?$/, async (route) => {
+    await route.fulfill({ json: { data: [document, otherDocument], count: 2 } })
+  })
+  await page.route(`**/api/v1/documents/${otherId}`, async (route) => {
+    await route.fulfill({ json: { document: otherDocument, chunks: [chunk] } })
+  })
+  await page.goto("/workspace")
+  for (const name of ["rag-eval.md", "other.md"]) {
+    await page.locator(".zm-result").filter({ hasText: name }).first().click()
+    await page
+      .getByRole("main")
+      .getByRole("button", { name: "引用到上下文" })
+      .click()
+  }
+  await expect(page.locator(".zm-ctx__count")).toHaveText("2 条")
+  await page.locator("#zm-ask-input").fill("比较两份资料")
+  await page.getByRole("button", { name: "发送", exact: true }).click()
+  await expect(page.locator(".zm-turn__a")).toBeVisible()
+  expect(chatBody).toMatchObject({
+    use_documents: true,
+    document_ids: [DOCUMENT_ID, otherId],
+  })
+  expect(chatBody).not.toHaveProperty("document_id")
+})
+
+test("文档上下文最多 20 篇，移除后可继续添加", async ({ page }) => {
+  const documents = Array.from({ length: 21 }, (_, index) => ({
+    ...document,
+    id: `00000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`,
+    filename: `doc-${String(index + 1).padStart(2, "0")}.md`,
+  }))
+  await page.route(/\/api\/v1\/documents(\?.*)?$/, (route) =>
+    route.fulfill({ json: { data: documents, count: documents.length } }),
+  )
+  await page.route(/\/api\/v1\/documents\/[^/]+$/, (route) => {
+    const id = new URL(route.request().url()).pathname.split("/").pop()
+    const selected = documents.find((item) => item.id === id)
+    if (!selected) return route.abort()
+    return route.fulfill({ json: { document: selected, chunks: [chunk] } })
+  })
+  await page.goto("/workspace")
+
+  async function addDocument(name: string) {
+    await page.locator(".zm-result").filter({ hasText: name }).click()
+    await expect(page.locator(".zm-reader__title")).toHaveText(name)
+    await page
+      .getByRole("main")
+      .getByRole("button", { name: "引用到上下文" })
+      .click()
+  }
+
+  for (const item of documents.slice(0, 20)) {
+    await addDocument(item.filename)
+  }
+  await expect(page.locator(".zm-ctx__count")).toHaveText("20 条")
+
+  await addDocument(documents[20].filename)
+  await expect(page.getByRole("status")).toContainText("最多引用 20 篇不同文档")
+  await expect(page.locator(".zm-ctx__count")).toHaveText("20 条")
+
+  await addDocument(documents[0].filename)
+  await expect(page.locator(".zm-ctx__count")).toHaveText("20 条")
+  await page.locator(".zm-result").filter({ hasText: "每周复盘模板" }).click()
+  await page
+    .getByRole("main")
+    .getByRole("button", { name: "引用到上下文" })
+    .click()
+  await expect(page.locator(".zm-ctx__count")).toHaveText("21 条")
+
+  await page
+    .getByRole("button", { name: `移除 ${documents[0].filename}` })
+    .click()
+  await addDocument(documents[20].filename)
+  await expect(page.locator(".zm-ctx__count")).toHaveText("21 条")
+  await page.locator("#zm-ask-input").fill("汇总资料")
+  await page.getByRole("button", { name: "发送", exact: true }).click()
+  await expect(page.locator(".zm-turn__a")).toBeVisible()
+  expect(chatBody?.document_ids).toEqual(
+    documents.slice(1).map((item) => item.id),
+  )
+})
+
+test("重试处理中请求复用原始摘录和编号，不覆盖其他回合", async ({ page }) => {
+  const bodies: Record<string, unknown>[] = []
+  await page.route("**/api/v1/chat", (route) => {
+    bodies.push(route.request().postDataJSON())
+    if (bodies.length === 1) {
+      return route.fulfill({
+        status: 409,
+        json: {
+          detail: { code: "request_in_progress", message: "请求处理中" },
+        },
+      })
+    }
+    return route.fulfill({ json: { answer: "已恢复", request_id: "done" } })
+  })
+  await page.goto("/workspace")
+  await page
+    .locator(".zm-result")
+    .filter({ hasText: "rag-eval.md" })
+    .first()
+    .click()
+  await page
+    .getByRole("main")
+    .getByRole("button", { name: "引用到上下文" })
+    .click()
+  await page.locator("#zm-ask-input").fill("第一个问题")
+  await page.getByRole("button", { name: "发送", exact: true }).click()
+  const first = page.locator(".zm-turn").filter({ hasText: "第一个问题" })
+  await expect(first).toContainText("请求处理中")
+  await page.getByRole("button", { name: "移除 rag-eval.md" }).click()
+  await page.locator("#zm-ask-input").fill("另一个问题")
+  await page.getByRole("button", { name: "发送", exact: true }).click()
+  await expect(
+    page.locator(".zm-turn").filter({ hasText: "另一个问题" }),
+  ).toContainText("已恢复")
+  await first.getByRole("button", { name: "重试此请求" }).click()
+  await expect(first).toContainText("已恢复")
+  expect(bodies[0]).toEqual(bodies[2])
+  expect(bodies[1].client_request_id).not.toBe(bodies[0].client_request_id)
+  await expect(page.locator(".zm-turn")).toHaveCount(2)
+})
+
+test("网络失败后重试保留编号，重复点击不会发送两次", async ({ page }) => {
+  const bodies: Record<string, unknown>[] = []
+  let release!: () => void
+  const pending = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  await page.route("**/api/v1/chat", async (route) => {
+    bodies.push(route.request().postDataJSON())
+    if (bodies.length === 1) {
+      await route.abort("failed")
+      return
+    }
+    await pending
+    await route.fulfill({ json: { answer: "网络恢复", request_id: "done" } })
+  })
+  try {
+    await page.goto("/workspace")
+    await page.locator("#zm-ask-input").fill("网络失败")
+    await page.getByRole("button", { name: "发送", exact: true }).click()
+    const turn = page.locator(".zm-turn").first()
+    const retry = turn.getByRole("button", { name: "重试此请求" })
+    await expect(retry).toBeVisible()
+    await retry.evaluate((button: HTMLButtonElement) => {
+      button.click()
+      button.click()
+    })
+    await expect(turn).toContainText("正在检索并生成回答")
+    await expect.poll(() => bodies.length).toBe(2)
+    expect(bodies[1]).toEqual(bodies[0])
+  } finally {
+    release()
+  }
+  await expect(page.locator(".zm-turn").first()).toContainText("网络恢复")
+  expect(bodies).toHaveLength(2)
+})
+
+test("模型前失败后用户手动重试使用新编号", async ({ page }) => {
+  const bodies: Record<string, unknown>[] = []
+  await page.route("**/api/v1/chat", (route) => {
+    bodies.push(route.request().postDataJSON())
+    if (bodies.length === 1) {
+      return route.fulfill({
+        status: 409,
+        json: { detail: { code: "request_failed", message: "模型前失败" } },
+      })
+    }
+    return route.fulfill({ json: { answer: "新编号完成", request_id: "done" } })
+  })
+  await page.goto("/workspace")
+  await page.locator("#zm-ask-input").fill("模型前失败")
+  await page.getByRole("button", { name: "发送", exact: true }).click()
+  const turn = page.locator(".zm-turn").first()
+  await expect(turn.locator(".zm-field__error")).toHaveText("模型前失败")
+  await turn.getByRole("button", { name: "重试此请求" }).click()
+  await expect(turn).toContainText("新编号完成")
+  expect(bodies[0].client_request_id).not.toBe(bodies[1].client_request_id)
+  expect(bodies[0].message).toBe(bodies[1].message)
+})
+
+test("结果未知先查询原请求，用户确认后才准备新编号", async ({ page }) => {
+  const bodies: Record<string, unknown>[] = []
+  await page.route("**/api/v1/chat", (route) => {
+    bodies.push(route.request().postDataJSON())
+    if (bodies.length < 3) {
+      return route.fulfill({
+        status: 409,
+        json: {
+          detail: { code: "request_outcome_unknown", message: "结果未知" },
+        },
+      })
+    }
+    return route.fulfill({ json: { answer: "确认后完成", request_id: "done" } })
+  })
+  await page.goto("/workspace")
+  await page.locator("#zm-ask-input").fill("结果未知")
+  await page.getByRole("button", { name: "发送", exact: true }).click()
+  const turn = page.locator(".zm-turn").first()
+  await expect(turn).toContainText("可能产生重复费用")
+  await turn
+    .getByRole("button", { name: "重试原请求（可能再次调用模型）" })
+    .click()
+  await expect(turn).toContainText("可能产生重复费用")
+  expect(bodies[1]).toEqual(bodies[0])
+  await turn.getByRole("button", { name: "确认并准备新请求" }).click()
+  expect(bodies).toHaveLength(2)
+  await expect(turn).toContainText("已准备新请求")
+  await turn.getByRole("button", { name: "重试此请求" }).click()
+  await expect(turn).toContainText("确认后完成")
+  expect(bodies[2].client_request_id).not.toBe(bodies[1].client_request_id)
+  expect(bodies[2].message).toBe(bodies[1].message)
+})
+
+test("跨标签切换账号时清空未发送的私有摘录", async ({ page }) => {
+  await emptySourcesForSecondAccount(page)
+  let requests = 0
+  await page.route("**/api/v1/chat", (route) => {
+    requests += 1
+    return route.fulfill({
+      json: { answer: "unexpected", request_id: "unexpected" },
+    })
+  })
+  await page.goto("/workspace")
+  await page
+    .locator(".zm-result")
+    .filter({ hasText: "rag-eval.md" })
+    .first()
+    .click()
+  await page
+    .getByRole("main")
+    .getByRole("button", { name: "引用到上下文" })
+    .click()
+  await expect(page.locator(".zm-ctx__count")).toHaveText("1 条")
+  await page.locator("#zm-ask-input").fill("账号A未发送的问题")
+  const reloaded = page.waitForEvent("load")
+  await switchAccountInOtherTab(page)
+  await reloaded
+  await expect(page.locator(".zm-ctx__count")).toHaveText("0 条")
+  await expect(page.locator("#zm-ask-input")).toBeEmpty()
+  expect(requests).toBe(0)
+})
+
+test("账号切换后旧账号在途回答不会显示给新账号", async ({ page }) => {
+  await emptySourcesForSecondAccount(page)
+  let release!: () => void
+  const pending = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  const authorization: string[] = []
+  await page.route("**/api/v1/chat", async (route) => {
+    authorization.push(route.request().headers().authorization ?? "")
+    await pending
+    await route
+      .fulfill({ json: { answer: "账号A私有迟到回答", request_id: "late" } })
+      .catch(() => {})
+  })
+  try {
+    await page.goto("/workspace")
+    await page.locator("#zm-ask-input").fill("账号A的问题")
+    await page.getByRole("button", { name: "发送", exact: true }).click()
+    await expect.poll(() => authorization.length).toBe(1)
+    expect(authorization).toEqual(["Bearer workspace-ui-test-token"])
+    const reloaded = page.waitForEvent("load")
+    await switchAccountInOtherTab(page)
+    await reloaded
+    release()
+    await expect(page.locator(".zm-turn")).toHaveCount(0)
+    await expect(page.getByText("账号A私有迟到回答")).toHaveCount(0)
+    expect(authorization).toEqual(["Bearer workspace-ui-test-token"])
+  } finally {
+    release()
+  }
+})
+
+test("账号在重试前变化时不发送旧请求", async ({ page }) => {
+  await emptySourcesForSecondAccount(page)
+  const authorizations: string[] = []
+  await page.route("**/api/v1/chat", (route) => {
+    authorizations.push(route.request().headers().authorization ?? "")
+    return route.fulfill({
+      status: 503,
+      json: { detail: { message: "临时失败" } },
+    })
+  })
+  await page.goto("/workspace")
+  await page.locator("#zm-ask-input").fill("原账号问题")
+  await page.getByRole("button", { name: "发送", exact: true }).click()
+  const retry = page.getByRole("button", { name: "重试此请求" })
+  await expect(retry).toBeVisible()
+  const reloaded = page.waitForEvent("load")
+  await retry.evaluate((button: HTMLButtonElement) => {
+    localStorage.setItem("access_token", "account-b-token")
+    button.click()
+  })
+  await reloaded
+  await expect(page.locator(".zm-turn")).toHaveCount(0)
+  expect(authorizations).toEqual(["Bearer workspace-ui-test-token"])
+})
+
+test("认证回调前会话切换时不会把原问题发给新账号", async ({ page }) => {
+  await emptySourcesForSecondAccount(page)
+  const authorizations: string[] = []
+  await page.route("**/api/v1/chat", (route) => {
+    authorizations.push(route.request().headers().authorization ?? "")
+    return route.fulfill({
+      json: { answer: "unexpected", request_id: "unexpected" },
+    })
+  })
+  await page.goto("/workspace")
+  await expect(page.locator(".zm-result").first()).toBeVisible()
+  await page.locator("#zm-ask-input").fill("原账号私有问题")
+  const reloaded = page.waitForEvent("load")
+  await page.evaluate(() => {
+    const original = Storage.prototype.getItem
+    let tokenReads = 0
+    Storage.prototype.getItem = function (key: string) {
+      if (this === localStorage && key === "access_token") {
+        tokenReads += 1
+        if (tokenReads === 3) {
+          sessionStorage.setItem("workspace-race-token-read", "3")
+          localStorage.setItem("access_token", "account-b-token")
+        }
+      }
+      return original.call(this, key)
+    }
+    const button = document.querySelector<HTMLButtonElement>(
+      ".zm-ask__row button",
+    )
+    button?.click()
+  })
+  await reloaded
+  expect(
+    await page.evaluate(() =>
+      sessionStorage.getItem("workspace-race-token-read"),
+    ),
+  ).toBe("3")
+  expect(authorizations).toEqual([])
+  await expect(page.locator(".zm-turn")).toHaveCount(0)
+  await expect(page.locator("#zm-ask-input")).toBeEmpty()
+})
+
+test("另一个标签快速切换后又切回仍清空旧会话", async ({ page }) => {
+  await page.goto("/workspace")
+  await page
+    .locator(".zm-result")
+    .filter({ hasText: "rag-eval.md" })
+    .first()
+    .click()
+  await page
+    .getByRole("main")
+    .getByRole("button", { name: "引用到上下文" })
+    .click()
+  await expect(page.locator(".zm-ctx__count")).toHaveText("1 条")
+  const other = await page.context().newPage()
+  try {
+    await other.route("**/api/**", (route) => route.abort())
+    await other.route("**/session-switch-test", (route) =>
+      route.fulfill({ contentType: "text/html", body: "<!doctype html>" }),
+    )
+    await other.goto(new URL("/session-switch-test", page.url()).href)
+    const reloaded = page.waitForEvent("load")
+    await other.evaluate(() => {
+      localStorage.setItem("access_token", "account-b-token")
+      localStorage.setItem("access_token", "workspace-ui-test-token")
+    })
+    await reloaded
+    await expect(page.locator(".zm-ctx__count")).toHaveText("0 条")
+  } finally {
+    await other.close()
+  }
 })
 
 test("新建速记后出现在左侧速记列表", async ({ page }) => {

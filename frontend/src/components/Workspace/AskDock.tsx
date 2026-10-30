@@ -10,6 +10,8 @@ export function AskDock({
   question,
   onQuestion,
   onAsk,
+  onRetry,
+  onConfirmNewRequest,
   busy,
   error,
   onOpenSource,
@@ -21,6 +23,8 @@ export function AskDock({
   question: string
   onQuestion: (value: string) => void
   onAsk: () => void
+  onRetry: (id: string) => void
+  onConfirmNewRequest: (id: string) => void
   busy: boolean
   error: string | null
   onOpenSource: (source: KnowledgeSource) => void
@@ -79,7 +83,7 @@ export function AskDock({
             <div className="zm-empty zm-ask__empty">
               <h3 className="zm-empty__title">基于当前上下文提问</h3>
               <p className="zm-empty__text">
-                未引用上下文时只检索知识库。引用片段后，提问会带上这些摘录；只引用一篇文档时还会限定检索范围。回答里的来源可以点开核对。
+                未引用上下文时只检索知识库。引用文档后，提问会带上摘录并限定所选文档范围。回答里的来源可以点开核对。
               </p>
             </div>
           ) : (
@@ -89,7 +93,37 @@ export function AskDock({
                 {turn.pending ? (
                   <p className="zm-turn__note">正在检索并生成回答…</p>
                 ) : turn.error ? (
-                  <p className="zm-field__error">{turn.error}</p>
+                  <div>
+                    <p className="zm-field__error">{turn.error}</p>
+                    <p className="zm-turn__note">
+                      重试可能再次调用模型，具体取决于服务端配置。
+                    </p>
+                    <button
+                      type="button"
+                      className="zm-btn zm-btn--ghost zm-btn--small"
+                      disabled={busy}
+                      onClick={() => onRetry(turn.id)}
+                    >
+                      {turn.errorCode === "request_outcome_unknown"
+                        ? "重试原请求（可能再次调用模型）"
+                        : "重试此请求"}
+                    </button>
+                    {turn.errorCode === "request_outcome_unknown" && (
+                      <>
+                        <p className="zm-turn__note">
+                          上次请求可能已经调用模型，重新发起可能产生重复费用。
+                        </p>
+                        <button
+                          type="button"
+                          className="zm-btn zm-btn--ghost zm-btn--small"
+                          disabled={busy}
+                          onClick={() => onConfirmNewRequest(turn.id)}
+                        >
+                          确认并准备新请求
+                        </button>
+                      </>
+                    )}
+                  </div>
                 ) : (
                   <p className="zm-turn__a">{turn.answer}</p>
                 )}

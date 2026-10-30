@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { createFileRoute, redirect } from "@tanstack/react-router"
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 
 import { AskDock } from "@/components/Workspace/AskDock"
 import { CodeWorkbench } from "@/components/Workspace/CodeWorkbench"
@@ -11,28 +11,35 @@ import { SourcesPanel } from "@/components/Workspace/SourcesPanel"
 import { StatusBar } from "@/components/Workspace/StatusBar"
 import { WorkspaceHeader } from "@/components/Workspace/WorkspaceHeader"
 import { isLoggedIn } from "@/hooks/useAuth"
-import { describeChatError, sendChatMessage } from "@/lib/chat"
-import { readCodeFile } from "@/lib/code"
+import {
+  type ChatMessage,
+  describeChatError,
+  sendChatMessageWithSession,
+} from "@/lib/chat"
+import { getCodeWorkspace, readCodeFile } from "@/lib/code"
 import { createRequestId } from "@/lib/ids"
-import { fetchImageObjectUrl } from "@/lib/images"
+import { fetchImageObjectUrl, listImages } from "@/lib/images"
 import {
   type DocumentDetail,
   type KnowledgeSource,
+  listDocuments,
   readDocument,
   searchDocuments,
 } from "@/lib/knowledge"
-import { createNote, describeNoteError } from "@/lib/notes"
+import { createNote, describeNoteError, listNotes } from "@/lib/notes"
 import {
   type AskTurn,
+  buildDataset,
   type CtxEntry,
   extractSymbols,
   KIND_LABEL,
-  loadDataset,
   type RankedItem,
   rankItems,
+  sourcesToItems,
   sourcesToRanked,
   tokensOf,
   type WsItem,
+  type WsKind,
   type WsScope,
 } from "@/lib/workspace"
 import "@/styles/workspace.css"
@@ -48,6 +55,7 @@ export const Route = createFileRoute("/workspace")({
 
 const DOC_METHOD = "bm25" as const
 const MAX_CHAT_CHARS = 4000
+const MAX_CONTEXT_DOCUMENTS = 20
 
 function WorkspacePage() {
   const queryClient = useQueryClient()
@@ -60,6 +68,7 @@ function WorkspacePage() {
   const [sort, setSort] = useState<"relevance" | "recent">("relevance")
   const [mode, setMode] = useState<"keyword" | "semantic">("keyword")
   const [activeId, setActiveId] = useState<string | null>(null)
+  const [selectedItem, setSelectedItem] = useState<WsItem | null>(null)
   const [openPaths, setOpenPaths] = useState<string[]>([])
   const [activePath, setActivePath] = useState<string | null>(null)
   const [contents, setContents] = useState<Record<string, string | undefined>>(
@@ -68,6 +77,7 @@ function WorkspacePage() {
   const [loadingPath, setLoadingPath] = useState<string | null>(null)
   const [codeQuery, setCodeQuery] = useState("")
   const [context, setContext] = useState<CtxEntry[]>([])
+  const contextRef = useRef<CtxEntry[]>([])
   const [question, setQuestion] = useState("")
   const [turns, setTurns] = useState<AskTurn[]>([])
   const [askBusy, setAskBusy] = useState(false)
@@ -79,22 +89,44 @@ function WorkspacePage() {
   const [pane, setPane] = useState<"knowledge" | "code">("knowledge")
   const [toast, setToast] = useState("")
 
-  const dataset = useQuery({
-    queryKey: ["workspace-dataset"],
-    queryFn: loadDataset,
+  const docsQuery = useQuery({
+    queryKey: ["workspace-dataset", "doc"],
+    queryFn: listDocuments,
+    retry: false,
   })
-
-  const documents = dataset.data?.documents ?? []
-  const notes = dataset.data?.notes ?? []
-  const items = dataset.data?.items ?? []
-  const codeFiles = dataset.data?.codeFiles ?? []
-  const counts = dataset.data?.counts ?? {
-    all: 0,
-    doc: 0,
-    note: 0,
-    image: 0,
-    code: 0,
-  }
+  const notesQuery = useQuery({
+    queryKey: ["workspace-dataset", "note"],
+    queryFn: listNotes,
+    retry: false,
+  })
+  const imagesQuery = useQuery({
+    queryKey: ["workspace-dataset", "image"],
+    queryFn: listImages,
+    retry: false,
+  })
+  const codeQueryResult = useQuery({
+    queryKey: ["workspace-dataset", "code"],
+    queryFn: getCodeWorkspace,
+    retry: false,
+  })
+  const sourceQueries = [docsQuery, notesQuery, imagesQuery, codeQueryResult]
+  const failedSources: WsKind[] = []
+  if (docsQuery.isError) failedSources.push("doc")
+  if (notesQuery.isError) failedSources.push("note")
+  if (imagesQuery.isError) failedSources.push("image")
+  if (codeQueryResult.isError) failedSources.push("code")
+  const datasetPending =
+    sourceQueries.every((source) => !source.data) &&
+    sourceQueries.some((source) => source.isPending)
+  const dataset = buildDataset({
+    documents: docsQuery.data?.data ?? [],
+    notes: notesQuery.data?.data ?? [],
+    images: imagesQuery.data?.data ?? [],
+    code: codeQueryResult.data ?? { files: [], total_bytes: 0 },
+  })
+  dataset.documentTotal = docsQuery.data?.count ?? 0
+  dataset.noteTotal = notesQuery.data?.count ?? 0
+  const { documents, notes, items, codeFiles, counts } = dataset
 
   const hasQuery = query.trim().length > 0
   const docsScope = scope === "all" || scope === "doc"
@@ -102,14 +134,14 @@ function WorkspacePage() {
   const docSearch = useQuery({
     queryKey: ["workspace-doc-search", query],
     queryFn: () => searchDocuments(query.trim(), undefined, "bm25"),
-    enabled: hasQuery && docsScope && Boolean(dataset.data),
+    enabled: hasQuery && docsScope,
     retry: false,
   })
 
   const semantic = useQuery({
     queryKey: ["workspace-semantic", query],
     queryFn: () => searchDocuments(query.trim(), undefined, "vector"),
-    enabled: mode === "semantic" && hasQuery && Boolean(dataset.data),
+    enabled: mode === "semantic" && hasQuery && docsScope,
     retry: false,
   })
 
@@ -165,8 +197,10 @@ function WorkspacePage() {
           : null
 
   const activeItem = useMemo(
-    () => items.find((item) => item.id === activeId) ?? null,
-    [activeId, items],
+    () =>
+      items.find((item) => item.id === activeId) ??
+      (selectedItem?.id === activeId ? selectedItem : null),
+    [activeId, items, selectedItem],
   )
 
   const docDetail = useQuery<DocumentDetail>({
@@ -241,7 +275,9 @@ function WorkspacePage() {
       setNoteOpen(false)
       setNoteError(null)
       setToast("速记已保存")
-      await queryClient.invalidateQueries({ queryKey: ["workspace-dataset"] })
+      await queryClient.invalidateQueries({
+        queryKey: ["workspace-dataset", "note"],
+      })
       setActiveId(`note:${created.id}`)
     },
     onError: (error) => setNoteError(describeNoteError(error)),
@@ -249,6 +285,57 @@ function WorkspacePage() {
 
   const fileLoadSeq = useRef(0)
   const askLock = useRef(false)
+  const askSnapshots = useRef(new Map<string, ChatMessage>())
+  const workspaceSession = useRef(localStorage.getItem("access_token"))
+  const sessionInvalid = useRef(false)
+  const askAbort = useRef<AbortController | null>(null)
+
+  const sessionMatches = useCallback(() => {
+    return (
+      !sessionInvalid.current &&
+      workspaceSession.current !== null &&
+      localStorage.getItem("access_token") === workspaceSession.current
+    )
+  }, [])
+
+  const invalidateWorkspaceSession = useCallback(() => {
+    if (sessionInvalid.current) return
+    sessionInvalid.current = true
+    askAbort.current?.abort()
+    askSnapshots.current.clear()
+    fileLoadSeq.current += 1
+    contextRef.current = []
+    setContext([])
+    setTurns([])
+    setQuestion("")
+    setContents({})
+    setOpenPaths([])
+    setActivePath(null)
+    setActiveId(null)
+    setSelectedItem(null)
+    void queryClient.cancelQueries()
+    queryClient.clear()
+    window.location.reload()
+  }, [queryClient])
+
+  useEffect(() => {
+    const onStorage = (event: StorageEvent) => {
+      if (
+        event.key === null ||
+        (event.key === "access_token" &&
+          event.newValue !== workspaceSession.current)
+      ) {
+        invalidateWorkspaceSession()
+      }
+    }
+    window.addEventListener("storage", onStorage)
+    if (!sessionMatches()) invalidateWorkspaceSession()
+    return () => {
+      window.removeEventListener("storage", onStorage)
+      askAbort.current?.abort()
+      askSnapshots.current.clear()
+    }
+  }, [sessionMatches, invalidateWorkspaceSession])
 
   function openCodeFile(path: string) {
     setOpenPaths((current) =>
@@ -286,6 +373,7 @@ function WorkspacePage() {
   }
 
   function selectItem(item: WsItem) {
+    setSelectedItem(item)
     setActiveId(item.id)
     if (item.kind === "code" && item.path) {
       setPane("code")
@@ -294,11 +382,29 @@ function WorkspacePage() {
   }
 
   function addContext(entry: CtxEntry) {
-    setContext((current) =>
-      current.some((value) => value.key === entry.key)
-        ? current
-        : [...current, entry],
+    if (!sessionMatches()) {
+      invalidateWorkspaceSession()
+      return
+    }
+    const current = contextRef.current
+    if (current.some((value) => value.key === entry.key)) {
+      setToast("已引用到上下文")
+      return
+    }
+    const documentIds = new Set(
+      current.map((value) => value.documentId).filter(Boolean),
     )
+    if (
+      entry.documentId &&
+      !documentIds.has(entry.documentId) &&
+      documentIds.size >= MAX_CONTEXT_DOCUMENTS
+    ) {
+      setToast("最多引用 20 篇不同文档，请先移除一篇。")
+      return
+    }
+    const next = [...current, entry]
+    contextRef.current = next
+    setContext(next)
     setToast("已引用到上下文")
   }
 
@@ -372,11 +478,15 @@ function WorkspacePage() {
   }
 
   function openSource(source: KnowledgeSource) {
-    setActiveId(`doc:${source.document_id}`)
+    selectItem(sourcesToItems([source])[0])
     setScope("all")
   }
 
   async function ask() {
+    if (!sessionMatches()) {
+      invalidateWorkspaceSession()
+      return
+    }
     const text = question.trim()
     if (!text) {
       setAskError("请输入问题内容再发送。")
@@ -408,21 +518,53 @@ function WorkspacePage() {
       message = clipped.slice(0, MAX_CHAT_CHARS)
       setToast("上下文过长，已截断后再提问")
     }
-    askLock.current = true
+    askSnapshots.current.set(turnId, {
+      message,
+      useDocuments: true,
+      retrievalMethod: DOC_METHOD,
+      documentId: docIds.length === 1 ? docIds[0] : undefined,
+      documentIds: docIds.length > 1 ? docIds : undefined,
+      clientRequestId: createRequestId(),
+    })
     setTurns((current) => [
       ...current,
       { id: turnId, question: text, pending: true },
     ])
     setQuestion("")
     setAskError(null)
+    await sendTurn(turnId)
+  }
+
+  async function sendTurn(turnId: string) {
+    if (askLock.current) return
+    if (!sessionMatches()) {
+      invalidateWorkspaceSession()
+      return
+    }
+    const snapshot = askSnapshots.current.get(turnId)
+    const sessionToken = workspaceSession.current
+    if (!snapshot || !sessionToken) return
+    const controller = new AbortController()
+    askAbort.current = controller
+    askLock.current = true
     setAskBusy(true)
+    setTurns((current) =>
+      current.map((turn) =>
+        turn.id === turnId
+          ? { ...turn, pending: true, error: undefined, errorCode: undefined }
+          : turn,
+      ),
+    )
     try {
-      const response = await sendChatMessage({
-        message,
-        useDocuments: true,
-        retrievalMethod: DOC_METHOD,
-        documentId: docIds.length === 1 ? docIds[0] : undefined,
+      const response = await sendChatMessageWithSession(snapshot, {
+        token: sessionToken,
+        signal: controller.signal,
       })
+      if (!sessionMatches()) {
+        invalidateWorkspaceSession()
+        return
+      }
+      askSnapshots.current.delete(turnId)
       setTurns((current) =>
         current.map((turn) =>
           turn.id === turnId
@@ -436,21 +578,72 @@ function WorkspacePage() {
         ),
       )
     } catch (error) {
+      if (!sessionMatches()) {
+        invalidateWorkspaceSession()
+        return
+      }
+      const details = describeChatError(error)
       setTurns((current) =>
         current.map((turn) =>
           turn.id === turnId
             ? {
                 ...turn,
                 pending: false,
-                error: describeChatError(error).message,
+                error: details.message,
+                errorCode: details.code,
               }
             : turn,
         ),
       )
     } finally {
+      if (askAbort.current === controller) askAbort.current = null
       askLock.current = false
-      setAskBusy(false)
+      if (sessionMatches()) setAskBusy(false)
     }
+  }
+
+  function retryTurn(turnId: string) {
+    if (askLock.current) return
+    if (!sessionMatches()) {
+      invalidateWorkspaceSession()
+      return
+    }
+    const turn = turns.find((item) => item.id === turnId)
+    const snapshot = askSnapshots.current.get(turnId)
+    if (!turn?.error || !snapshot) return
+    if (turn.errorCode === "request_failed") {
+      askSnapshots.current.set(turnId, {
+        ...snapshot,
+        clientRequestId: createRequestId(),
+      })
+    }
+    void sendTurn(turnId)
+  }
+
+  function confirmNewTurnRequest(turnId: string) {
+    if (askLock.current) return
+    if (!sessionMatches()) {
+      invalidateWorkspaceSession()
+      return
+    }
+    const turn = turns.find((item) => item.id === turnId)
+    const snapshot = askSnapshots.current.get(turnId)
+    if (turn?.errorCode !== "request_outcome_unknown" || !snapshot) return
+    askSnapshots.current.set(turnId, {
+      ...snapshot,
+      clientRequestId: createRequestId(),
+    })
+    setTurns((current) =>
+      current.map((item) =>
+        item.id === turnId
+          ? {
+              ...item,
+              error: "已准备新请求，请确认后点击重试。",
+              errorCode: "retry_ready",
+            }
+          : item,
+      ),
+    )
   }
 
   const resultTitle = query.trim()
@@ -458,7 +651,7 @@ function WorkspacePage() {
     : scope === "all"
       ? "全部资料"
       : KIND_LABEL[scope]
-  const resultMeta = dataset.isPending
+  const resultMeta = datasetPending
     ? "正在读取知识库…"
     : `${rows.length} 条结果${
         query.trim() ? "" : " · 按更新时间排序"
@@ -517,13 +710,35 @@ function WorkspacePage() {
       />
 
       <main className="zm-know" aria-label="知识检索">
+        {failedSources.length ? (
+          <div role="alert">
+            {failedSources.map((kind) => KIND_LABEL[kind]).join("、")}
+            加载失败，其他资料仍可使用。
+            <button
+              type="button"
+              onClick={() => {
+                for (const source of sourceQueries) {
+                  if (source.isError) void source.refetch()
+                }
+              }}
+            >
+              重试加载
+            </button>
+          </div>
+        ) : null}
         <div id="zm-results-list" style={{ display: "contents" }}>
           <ResultsPanel
             title={resultTitle}
             meta={resultMeta}
             rows={rows}
             loading={
-              dataset.isPending ||
+              (datasetPending &&
+                rows.length === 0 &&
+                !(
+                  hasQuery &&
+                  docsScope &&
+                  (docSearch.data || semantic.data)
+                )) ||
               (hasQuery &&
                 docsScope &&
                 docSearch.isFetching &&
@@ -533,7 +748,9 @@ function WorkspacePage() {
             warning={semanticWarning}
             activeId={activeId}
             onSelect={(id) => {
-              const item = items.find((entry) => entry.id === id)
+              const item =
+                items.find((entry) => entry.id === id) ??
+                rows.find((row) => row.item.id === id)?.item
               if (item) selectItem(item)
             }}
             sort={sort}
@@ -580,16 +797,21 @@ function WorkspacePage() {
       >
         <AskDock
           context={context}
-          onRemove={(key) =>
-            setContext((current) =>
-              current.filter((entry) => entry.key !== key),
-            )
-          }
-          onClear={() => setContext([])}
+          onRemove={(key) => {
+            const next = contextRef.current.filter((entry) => entry.key !== key)
+            contextRef.current = next
+            setContext(next)
+          }}
+          onClear={() => {
+            contextRef.current = []
+            setContext([])
+          }}
           turns={turns}
           question={question}
           onQuestion={setQuestion}
           onAsk={() => void ask()}
+          onRetry={retryTurn}
+          onConfirmNewRequest={confirmNewTurnRequest}
           busy={askBusy}
           error={askError}
           onOpenSource={openSource}
@@ -602,11 +824,10 @@ function WorkspacePage() {
         files={codeFiles.length}
         mode={mode}
         hint={
-          dataset.error
+          failedSources.length === 4
             ? "知识库读取失败，请刷新页面"
-            : (dataset.data?.documentTotal ?? 0) >
-                (dataset.data?.documents.length ?? 0)
-              ? `文档列表只显示最近 ${dataset.data?.documents.length ?? 0} 篇`
+            : dataset.documentTotal > dataset.documents.length
+              ? `文档列表只显示最近 ${dataset.documents.length} 篇`
               : query.trim()
                 ? "输入即检索，⌘K 聚焦搜索"
                 : "资料来自当前账号的知识库与沙箱"

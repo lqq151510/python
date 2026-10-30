@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { createFileRoute, Link } from "@tanstack/react-router"
+import { isAxiosError } from "axios"
 import {
   Bot,
   Check,
@@ -120,6 +121,9 @@ function Chat() {
   }, [user, question, requestedDocument, requestedMethod])
   const characterCount = Array.from(message.trim()).length
   const error = mutation.isError ? describeChatError(mutation.error) : null
+  const errorCode = isAxiosError(mutation.error)
+    ? mutation.error.response?.data?.detail?.code
+    : undefined
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -159,7 +163,13 @@ function Chat() {
         clientRequestId: pendingRequest.current.key,
       })
       pendingRequest.current = null
-    } catch {
+    } catch (error) {
+      if (
+        isAxiosError(error) &&
+        error.response?.data?.detail?.code === "request_failed"
+      ) {
+        pendingRequest.current = null
+      }
       // The mutation state renders a safe, user-facing error below.
     } finally {
       submitting.current = false
@@ -295,6 +305,23 @@ function Chat() {
                   <TriangleAlert size={26} aria-hidden="true" />
                   <h2>暂时无法生成回答</h2>
                   <p>{error.message}</p>
+                  {errorCode === "request_outcome_unknown" && (
+                    <>
+                      <p>
+                        上次请求可能已经调用模型，重新发起可能产生重复费用。
+                      </p>
+                      <button
+                        type="button"
+                        className="da-secondary"
+                        onClick={() => {
+                          pendingRequest.current = null
+                          mutation.reset()
+                        }}
+                      >
+                        确认并准备新请求
+                      </button>
+                    </>
+                  )}
                   {error.requestId && (
                     <small>请求标识：{error.requestId}</small>
                   )}

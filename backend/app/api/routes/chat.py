@@ -2,9 +2,10 @@ import hashlib
 import json
 import logging
 import uuid
+from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, HTTPException, Query, Request
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlmodel import Session, col, func, select
 from starlette.concurrency import run_in_threadpool
 
@@ -18,9 +19,10 @@ from app.chat import (
     ChatServiceError,
     generate_answer,
 )
+from app.core.config import settings
 from app.core.db import engine
 from app.knowledge import KnowledgeError, KnowledgeSource, retrieve_context_result
-from app.models import ChatTurn
+from app.models import ChatRequestClaim, ChatTurn
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +44,49 @@ async def create_chat(
             _ensure_request_matches(existing, request_hash)
             return _response_from_turn(existing, request_id)
 
+    if body.client_request_id is not None and settings.CHAT_IDEMPOTENCY_CLAIMS_ENABLED:
+        try:
+            claim_status = await run_in_threadpool(
+                _claim_chat_request, current_user.id, body.client_request_id, request_hash
+            )
+        except (SQLAlchemyError, ChatHistoryPersistenceError):
+            request.state.chat_error_code = "chat_history_persistence_failed"
+            raise HTTPException(status_code=503, detail={
+                "code": "chat_history_persistence_failed",
+                "message": "暂时无法安全处理请求，请稍后重试。",
+            }) from None
+        if claim_status == "completed":
+            existing = await run_in_threadpool(
+                _find_existing_turn, current_user.id, body.client_request_id
+            )
+            if existing:
+                _ensure_request_matches(existing, request_hash)
+                return _response_from_turn(existing, request_id)
+            _raise_claim_conflict("request_outcome_unknown")
+        if claim_status != "claimed":
+            _raise_claim_conflict(claim_status)
+
+    phase = {"model_started": False}
+    try:
+        return await _create_chat_inner(request, current_user, body, request_hash, phase)
+    except BaseException:
+        if body.client_request_id is not None and settings.CHAT_IDEMPOTENCY_CLAIMS_ENABLED:
+            try:
+                await run_in_threadpool(
+                    _mark_claim_terminal, current_user.id, body.client_request_id,
+                    "unknown" if phase["model_started"] else "failed",
+                )
+            except Exception:
+                logger.exception("chat_claim_cleanup_failed request_id=%s", request_id)
+        raise
+
+
+async def _create_chat_inner(
+    request: Request, current_user: CurrentUser, body: ChatRequest, request_hash: str,
+    phase: dict[str, bool],
+) -> ChatResponse:
+    request_id = request.state.request_id
+
     sources = []
     retrieval = None
     if body.use_documents:
@@ -52,6 +97,11 @@ async def create_chat(
                 body.message,
                 body.document_id,
                 body.retrieval_method,
+                **(
+                    {"document_ids": body.document_ids}
+                    if body.document_ids is not None
+                    else {}
+                ),
             )
             sources = retrieval.sources
         except KnowledgeError as exc:
@@ -68,6 +118,7 @@ async def create_chat(
                     "message": "知识库中没有匹配的片段，请先导入相关文档或调整问题。",
                 },
             )
+    phase["model_started"] = True
     try:
         answer = (
             await generate_answer(body.message, request_id, sources)
@@ -107,6 +158,58 @@ class ChatHistoryPersistenceError(Exception):
     pass
 
 
+def _raise_claim_conflict(code: str) -> None:
+    messages = {
+        "request_in_progress": "相同请求正在处理，请稍后使用相同请求编号重试。",
+        "request_outcome_unknown": "上次请求结果未知，请确认后使用新的请求编号重试。",
+        "request_failed": "上次请求在模型调用前失败，请使用新的请求编号重试。",
+    }
+    raise HTTPException(status_code=409, detail={"code": code, "message": messages[code]})
+
+
+def _claim_chat_request(owner_id: uuid.UUID, client_request_id: uuid.UUID, request_hash: str) -> str:
+    with Session(engine) as session:
+        claim = ChatRequestClaim(owner_id=owner_id, client_request_id=client_request_id, request_hash=request_hash)
+        session.add(claim)
+        try:
+            session.commit()
+            return "claimed"
+        except IntegrityError:
+            session.rollback()
+        existing = session.exec(
+            select(ChatRequestClaim).where(
+                ChatRequestClaim.owner_id == owner_id,
+                ChatRequestClaim.client_request_id == client_request_id,
+            )
+        ).first()
+        if existing is None:
+            raise ChatHistoryPersistenceError
+        if existing.request_hash != request_hash:
+            raise HTTPException(status_code=409, detail={"code": "idempotency_key_reused", "message": "请求编号已用于其他内容，请为新请求生成新的编号。"})
+        created = existing.created_at
+        if created.tzinfo is None:
+            created = created.replace(tzinfo=UTC)
+        if existing.status == "completed":
+            return "completed"
+        if existing.status == "failed":
+            return "request_failed"
+        if existing.status == "pending" and datetime.now(UTC) - created < timedelta(minutes=3):
+            return "request_in_progress"
+        return "request_outcome_unknown"
+
+
+def _mark_claim_terminal(owner_id: uuid.UUID, client_request_id: uuid.UUID, status: str) -> None:
+    with Session(engine) as session:
+        claim = session.exec(select(ChatRequestClaim).where(
+            ChatRequestClaim.owner_id == owner_id,
+            ChatRequestClaim.client_request_id == client_request_id,
+        )).first()
+        if claim is not None and claim.status == "pending":
+            claim.status = status
+            session.add(claim)
+            session.commit()
+
+
 def _request_hash(body: ChatRequest) -> str:
     payload = {
         "message": body.message,
@@ -114,6 +217,8 @@ def _request_hash(body: ChatRequest) -> str:
         "document_id": str(body.document_id) if body.document_id else None,
         "retrieval_method": body.retrieval_method,
     }
+    if body.document_ids is not None:
+        payload["document_ids"] = sorted(str(value) for value in body.document_ids)
     canonical = json.dumps(
         payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")
     )
@@ -187,18 +292,30 @@ def _persist_chat_turn(
             retrieval_method=response.retrieval_method,
             retrieval_warning=response.retrieval_warning,
         )
-        session.add(turn)
         try:
+            if body.client_request_id is not None and settings.CHAT_IDEMPOTENCY_CLAIMS_ENABLED:
+                claim = session.exec(select(ChatRequestClaim).where(
+                    ChatRequestClaim.owner_id == owner_id,
+                    ChatRequestClaim.client_request_id == body.client_request_id,
+                )).first()
+                if claim is None or claim.status != "pending":
+                    raise ChatHistoryPersistenceError
+                claim.status = "completed"
+                session.add(claim)
+            session.add(turn)
             session.commit()
         except SQLAlchemyError as exc:
             session.rollback()
             if body.client_request_id is not None:
-                existing = session.exec(
-                    select(ChatTurn).where(
-                        ChatTurn.owner_id == owner_id,
-                        ChatTurn.client_request_id == body.client_request_id,
-                    )
-                ).first()
+                try:
+                    existing = session.exec(
+                        select(ChatTurn).where(
+                            ChatTurn.owner_id == owner_id,
+                            ChatTurn.client_request_id == body.client_request_id,
+                        )
+                    ).first()
+                except SQLAlchemyError:
+                    existing = None
                 if existing:
                     _ensure_request_matches(existing, request_hash)
                     return _response_from_turn(existing, response.request_id)

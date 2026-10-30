@@ -306,6 +306,68 @@ test.describe("authenticated chat UI with simulated responses", () => {
     expect(requests).toBe(2)
   })
 
+  test("继续等待时复用请求编号，模型前失败后手动重试使用新编号", async ({
+    page,
+  }) => {
+    const keys: string[] = []
+    await page.route("**/api/v1/chat", (route) => {
+      keys.push(route.request().postDataJSON().client_request_id)
+      if (keys.length < 3) {
+        const code =
+          keys.length === 1 ? "request_in_progress" : "request_failed"
+        return route.fulfill({
+          status: 409,
+          json: { detail: { code, message: code } },
+        })
+      }
+      return route.fulfill({ json: { answer: "重试成功", request_id: "done" } })
+    })
+    await page.goto("/chat")
+    await page.getByLabel("你的问题", { exact: true }).fill("处理重试")
+    await page.getByRole("button", { name: "发送问题" }).click()
+    await expect(page.getByRole("alert")).toContainText("request_in_progress")
+    await page.getByRole("button", { name: "发送问题" }).click()
+    await expect(page.getByRole("alert")).toContainText("request_failed")
+    await page.getByRole("button", { name: "发送问题" }).click()
+    await expect(page.getByRole("region", { name: "AI 回答" })).toContainText(
+      "重试成功",
+    )
+    expect(keys[1]).toBe(keys[0])
+    expect(keys[2]).not.toBe(keys[1])
+  })
+
+  test("结果未知时保留编号，用户确认后才能主动准备新请求", async ({ page }) => {
+    const keys: string[] = []
+    await page.route("**/api/v1/chat", (route) => {
+      keys.push(route.request().postDataJSON().client_request_id)
+      if (keys.length < 3) {
+        return route.fulfill({
+          status: 409,
+          json: {
+            detail: { code: "request_outcome_unknown", message: "结果未知" },
+          },
+        })
+      }
+      return route.fulfill({
+        json: { answer: "新请求完成", request_id: "done" },
+      })
+    })
+    await page.goto("/chat")
+    await page.getByLabel("你的问题", { exact: true }).fill("结果未知")
+    await page.getByRole("button", { name: "发送问题" }).click()
+    await expect(page.getByRole("alert")).toContainText("可能产生重复费用")
+    await page.getByRole("button", { name: "发送问题" }).click()
+    await expect(page.getByRole("alert")).toContainText("结果未知")
+    expect(keys[1]).toBe(keys[0])
+    await page.getByRole("button", { name: "确认并准备新请求" }).click()
+    expect(keys).toHaveLength(2)
+    await page.getByRole("button", { name: "发送问题" }).click()
+    await expect(page.getByRole("region", { name: "AI 回答" })).toContainText(
+      "新请求完成",
+    )
+    expect(keys[2]).not.toBe(keys[1])
+  })
+
   test("persists successful answers with citations and restores them from history", async ({
     page,
   }) => {

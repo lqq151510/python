@@ -55,6 +55,8 @@ class Settings(BaseSettings):
         default=None, ge=0, le=86400
     )
     CHAT_VALIDATE_DOCUMENT_EVIDENCE: bool = False
+    # Requires the chat-request-claim migration before enabling.
+    CHAT_IDEMPOTENCY_CLAIMS_ENABLED: bool = False
 
     CODE_API_FORMAT: Literal[
         "openai_chat_completions",

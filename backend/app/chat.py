@@ -53,13 +53,24 @@ class ChatRequest(BaseModel):
     message: str = Field(min_length=1, max_length=4000)
     use_documents: bool = False
     document_id: uuid.UUID | None = None
+    document_ids: list[uuid.UUID] | None = Field(
+        default=None, min_length=1, max_length=20
+    )
     retrieval_method: RetrievalMethod = "bm25"
     client_request_id: uuid.UUID | None = None
 
     @model_validator(mode="after")
     def validate_document_scope(self) -> ChatRequest:
-        if self.document_id is not None and not self.use_documents:
+        if (
+            self.document_id is not None or self.document_ids is not None
+        ) and not self.use_documents:
             raise ValueError("指定文档时需要启用知识库。")
+        if self.document_id is not None and self.document_ids is not None:
+            raise ValueError("不能同时指定 document_id 和 document_ids。")
+        if self.document_ids is not None and len(set(self.document_ids)) != len(
+            self.document_ids
+        ):
+            raise ValueError("文档范围不能包含重复 ID。")
         if self.retrieval_method != "bm25" and not self.use_documents:
             raise ValueError("选择检索方式时需要启用知识库。")
         return self

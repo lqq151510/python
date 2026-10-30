@@ -187,6 +187,23 @@ class ChatTurn(SQLModel, table=True):
     retrieval_warning: str | None = Field(default=None, max_length=64)
 
 
+class ChatRequestClaim(SQLModel, table=True):
+    """A durable owner-scoped claim; never store prompt or model output here."""
+
+    __table_args__ = (
+        UniqueConstraint("owner_id", "client_request_id", name="uq_chatclaim_owner_client_request"),
+    )
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    owner_id: uuid.UUID = Field(foreign_key="user.id", ondelete="CASCADE")
+    client_request_id: uuid.UUID
+    request_hash: str = Field(max_length=64)
+    status: str = Field(default="pending", max_length=16)
+    created_at: datetime = Field(
+        default_factory=get_datetime_utc, sa_type=DateTime(timezone=True)
+    )
+
+
 class AigcJob(SQLModel, table=True):
     """一次 AIGC 视频生成任务。
 

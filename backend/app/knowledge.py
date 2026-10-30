@@ -280,12 +280,18 @@ def search_result(
     document_id: uuid.UUID | None = None,
     method: RetrievalMethod = "bm25",
     vector_store: str | None = None,
+    document_ids: list[uuid.UUID] | None = None,
 ) -> SearchResponse:
     from app.core.config import settings
     from app.semantic import SemanticUnavailable, fuse_rankings, vector_rank
 
     if document_id is not None:
         owned_document(session, owner_id, document_id)
+    if document_ids is not None:
+        if not document_ids or document_id is not None:
+            raise ValueError("invalid document scope")
+        for scoped_id in document_ids:
+            owned_document(session, owner_id, scoped_id)
     statement = (
         select(DocumentChunk, Document)
         .join(Document, col(DocumentChunk.document_id) == col(Document.id))
@@ -296,6 +302,8 @@ def search_result(
     )
     if document_id is not None:
         statement = statement.where(Document.id == document_id)
+    if document_ids is not None:
+        statement = statement.where(col(Document.id).in_(document_ids))
     rows = session.exec(statement).all()
     texts = [f"{doc.filename}\n{chunk.heading}\n{chunk.content}" for chunk, doc in rows]
     depth = 20 if method == "hybrid" else limit
@@ -388,12 +396,18 @@ def retrieve_context_result(
     query: str,
     document_id: uuid.UUID | None = None,
     method: RetrievalMethod = "bm25",
+    document_ids: list[uuid.UUID] | None = None,
 ) -> SearchResponse:
     from app.core.db import engine
 
     with Session(engine) as session:
         return search_result(
-            session, owner_id, query, document_id=document_id, method=method
+            session,
+            owner_id,
+            query,
+            document_id=document_id,
+            method=method,
+            document_ids=document_ids,
         )
 
 

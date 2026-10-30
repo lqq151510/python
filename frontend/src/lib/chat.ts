@@ -8,6 +8,7 @@ export interface ChatMessage {
   useDocuments: boolean
   retrievalMethod?: RetrievalMethod
   documentId?: string
+  documentIds?: string[]
   clientRequestId?: string
 }
 
@@ -22,10 +23,18 @@ export interface ChatResponse {
 export interface ChatErrorMessage {
   message: string
   requestId?: string
+  code?: string
 }
 
 export async function sendChatMessage(
   input: ChatMessage,
+): Promise<ChatResponse> {
+  return sendChatMessageWithSession(input)
+}
+
+export async function sendChatMessageWithSession(
+  input: ChatMessage,
+  session?: { token: string; signal: AbortSignal },
 ): Promise<ChatResponse> {
   const response = await client.post<{ 200: ChatResponse }, unknown, true>({
     url: "/api/v1/chat",
@@ -41,10 +50,22 @@ export async function sendChatMessage(
               ? { retrieval_method: input.retrievalMethod }
               : {}),
             ...(input.documentId ? { document_id: input.documentId } : {}),
+            ...(input.documentIds ? { document_ids: input.documentIds } : {}),
           }
         : {}),
     },
     security: [{ scheme: "bearer", type: "http" }],
+    ...(session
+      ? {
+          auth: () => {
+            if (localStorage.getItem("access_token") !== session.token) {
+              throw new Error("登录会话已变更，请重新操作。")
+            }
+            return session.token
+          },
+          signal: session.signal,
+        }
+      : {}),
     headers: { "Content-Type": "application/json" },
     responseType: "json",
     throwOnError: true,
@@ -97,5 +118,9 @@ export function describeChatError(error: unknown): ChatErrorMessage {
     message = detail.message
   }
 
-  return { message, requestId }
+  const code =
+    detail && typeof detail === "object" && typeof detail.code === "string"
+      ? detail.code
+      : undefined
+  return { message, requestId, code }
 }
