@@ -44,5 +44,7 @@ jobs:
           path: backend/htmlcov
           include-hidden-files: true
       - name: Coverage report
-        run: uv run coverage report --fail-under=90
+        # The floor lives in backend/pyproject.toml ([tool.coverage.report]
+        # fail_under), so a local `coverage report` enforces the same number.
+        run: uv run coverage report
         working-directory: backend
