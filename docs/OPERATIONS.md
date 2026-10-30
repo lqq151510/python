@@ -25,15 +25,15 @@
 
 ## 备份与恢复演练
 
-备份脚本生成 PostgreSQL custom-format 归档，先写入临时文件，再用 `pg_restore --list` 检查归档后原子改名；文件存放在被 Git 忽略的 `.local/devassist-backups/`。
+备份脚本生成 PostgreSQL custom-format 归档，先写入同目录的私有临时文件，用 `pg_restore --list` 检查归档目录，再将完整归档解析为 SQL 并写入 `/dev/null`。校验通过后，使用随机文件名和 Python 3 的 `os.link` 原子发布，不覆盖已有路径；备份目录须支持硬链接。文件存放在被 Git 忽略的 `.local/devassist-backups/`。完整解析只验证归档可读取，不能证明它能在目标数据库成功恢复。
 
 ```bash
 scripts/backup-devassist-db.sh
-docker compose --project-name devassist exec -T db pg_restore --list - \
+docker compose --project-name devassist exec -T db pg_restore --list \
   < .local/devassist-backups/<备份文件名>
 ```
 
-恢复会先校验目标归档，并自动给当前数据库再做一份恢复前备份；随后停止 backend、重建 `app` 数据库并恢复归档。只有明确确认后才会运行：
+恢复前会将目标归档复制到仅本次使用的私有快照，再对快照做目录检查和完整解析；任一步骤失败时不会创建恢复前备份、停止 backend 或重建数据库。预检与最终恢复使用同一快照，执行结束后清理该快照；请预留至少一份待恢复归档大小的临时磁盘空间。校验通过后，脚本会自动给当前数据库再做一份恢复前备份；随后停止 backend、重建 `app` 数据库并恢复归档。恢复源必须位于备份目录内，物理路径不得通过父目录符号链接逃逸，文件本身也不能是符号链接。归档解析通过并不保证 SQL 能在目标数据库成功执行。只有明确确认后才会运行：
 
 ```bash
 DEVASSIST_RESTORE_CONFIRM=RESTORE_DEVASSIST_DATABASE \
