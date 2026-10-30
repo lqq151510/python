@@ -196,10 +196,8 @@ def test_agent_stops_after_five_steps_and_does_not_run_write_tools(
         return httpx.Response(200, json=payload)
 
     def create_client(**kwargs: Any) -> AsyncOpenAI:
-        return AsyncOpenAI(
-            **kwargs,
-            http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
-        )
+        kwargs["http_client"] = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        return AsyncOpenAI(**kwargs)
 
     monkeypatch.setattr(web_agent, "AsyncOpenAI", create_client)
     response = client.post(
@@ -247,10 +245,8 @@ def test_agent_sessions_belong_to_one_user_and_keep_turns(
         return httpx.Response(200, json=completion_response(answer))
 
     def create_client(**kwargs: Any) -> AsyncOpenAI:
-        return AsyncOpenAI(
-            **kwargs,
-            http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
-        )
+        kwargs["http_client"] = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        return AsyncOpenAI(**kwargs)
 
     monkeypatch.setattr(web_agent, "AsyncOpenAI", create_client)
     first = client.post(

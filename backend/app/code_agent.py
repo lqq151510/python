@@ -22,6 +22,7 @@ import httpx
 from pydantic import BaseModel, ConfigDict, Field, SecretStr
 
 from app.core.config import settings
+from app.model_http import is_loopback_model_url
 
 logger = logging.getLogger(__name__)
 # Serialize threads; flock below serializes cooperating local worker processes.
@@ -1146,7 +1147,9 @@ async def _request_model(system: str, user: str, request_id: str) -> str:
     for attempt in range(2):
         try:
             async with httpx.AsyncClient(
-                timeout=timeout, follow_redirects=False
+                timeout=timeout,
+                follow_redirects=False,
+                trust_env=not is_loopback_model_url(base_url),
             ) as client:
                 response = await client.post(endpoint, json=payload, headers=headers)
             if response.status_code in (401, 403):

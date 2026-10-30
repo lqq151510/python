@@ -82,10 +82,8 @@ def mock_provider(
 
     def create_client(**kwargs: Any) -> AsyncOpenAI:
         constructor_args.update(kwargs)
-        return AsyncOpenAI(
-            **kwargs,
-            http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
-        )
+        kwargs["http_client"] = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        return AsyncOpenAI(**kwargs)
 
     monkeypatch.setattr(chat, "AsyncOpenAI", create_client)
     return constructor_args

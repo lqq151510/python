@@ -31,6 +31,7 @@ from app.core.config import settings
 from app.core.db import engine
 from app.image_library import ImageError, search_text
 from app.knowledge import retrieve_context_result
+from app.model_http import local_model_http_client
 from app.models import AgentSession, AgentTurn, get_datetime_utc
 
 logger = logging.getLogger(__name__)
@@ -375,14 +376,18 @@ async def _model_loop(
     steps: list[AgentStepPublic] = []
     try:
         async with asyncio.timeout(budget):
-            async with AsyncOpenAI(
-                api_key=key.get_secret_value(),
-                base_url=str(settings.DEEPSEEK_BASE_URL),
-                max_retries=0,
-                timeout=httpx.Timeout(
-                    budget, connect=min(settings.CHAT_CONNECT_TIMEOUT_SECONDS, budget)
-                ),
-            ) as client:
+            async with (
+                local_model_http_client(str(settings.DEEPSEEK_BASE_URL)) as http_client,
+                AsyncOpenAI(
+                    api_key=key.get_secret_value(),
+                    base_url=str(settings.DEEPSEEK_BASE_URL),
+                    max_retries=0,
+                    **({"http_client": http_client} if http_client is not None else {}),
+                    timeout=httpx.Timeout(
+                        budget, connect=min(settings.CHAT_CONNECT_TIMEOUT_SECONDS, budget)
+                    ),
+                ) as client,
+            ):
                 for _step_number in range(1, AGENT_MAX_STEPS + 1):
                     reply = await _complete(client, messages, deadline, request_id)
                     if not reply.tool_calls:

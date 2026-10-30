@@ -47,6 +47,13 @@ class Settings(BaseSettings):
     CHAT_TOTAL_TIMEOUT_SECONDS: float = Field(default=30, gt=0, le=30)
     CHAT_CONNECT_TIMEOUT_SECONDS: float = Field(default=5, gt=0, le=5)
     CHAT_MAX_TOKENS: int = Field(default=1024, gt=0, le=1024)
+    CHAT_DOCUMENT_MODEL: str | None = Field(default=None, min_length=1, max_length=128)
+    CHAT_DOCUMENT_REASONING_EFFORT: (
+        Literal["none", "minimal", "low", "medium", "high", "xhigh", "max"] | None
+    ) = None
+    CHAT_DOCUMENT_OLLAMA_KEEP_ALIVE_SECONDS: int | None = Field(
+        default=None, ge=0, le=86400
+    )
     CHAT_VALIDATE_DOCUMENT_EVIDENCE: bool = False
 
     CODE_API_FORMAT: Literal[
@@ -88,6 +95,13 @@ class Settings(BaseSettings):
     )
     REDIS_URL: str = "redis://127.0.0.1:6379/1"
     MYSQL_DATABASE_URL: SecretStr | None = None
+
+    @field_validator("CHAT_DOCUMENT_MODEL", mode="before")
+    @classmethod
+    def _optional_document_model(cls, value: object) -> object:
+        if isinstance(value, str):
+            return value.strip() or None
+        return value
 
     @field_validator("RAG_WORKER_URL")
     @classmethod
