@@ -331,6 +331,211 @@ test("文档列表失败时可以打开回答中的另一篇来源", async ({ pa
   await expect(page.getByText("召回与排序", { exact: true })).toBeVisible()
 })
 
+async function typeSearchBurst(page: Page, text: string) {
+  await page.locator("#zm-search-input").evaluate((element, value) => {
+    const field = element as HTMLInputElement
+    const setter = Object.getOwnPropertyDescriptor(
+      HTMLInputElement.prototype,
+      "value",
+    )?.set
+    if (!setter) throw new Error("无法写入检索框")
+    let current = ""
+    for (const char of value) {
+      current += char
+      setter.call(field, current)
+      field.dispatchEvent(
+        new InputEvent("input", { bubbles: true, data: char }),
+      )
+    }
+  }, text)
+}
+
+test("快速连续输入只发送最后一次文档检索，笔记和代码仍即时过滤", async ({
+  page,
+}) => {
+  const queries: string[] = []
+  await page.route("**/api/v1/documents/search", async (route) => {
+    const body = route.request().postDataJSON() as {
+      query?: string
+      method?: string
+    }
+    queries.push(`${body.method ?? "bm25"}:${body.query ?? ""}`)
+    await route.fulfill({
+      json: {
+        query: body.query ?? "",
+        method: body.method ?? "bm25",
+        sources: body.query === "评估报告" ? [source] : [],
+      },
+    })
+  })
+
+  await page.goto("/workspace")
+  await expect(page.getByRole("heading", { name: "全部资料" })).toBeVisible()
+  const input = page.locator("#zm-search-input")
+  await input.pressSequentially("复盘", { delay: 20 })
+  expect(queries).toEqual([])
+  await expect(
+    page.locator(".zm-result").filter({ hasText: "每周复盘模板" }),
+  ).toBeVisible()
+  await expect(
+    page.locator(".zm-result").filter({ hasText: "retrieval.py" }),
+  ).toHaveCount(0)
+
+  await expect
+    .poll(() => queries.filter((item) => item === "bm25:复盘").length, {
+      timeout: 2000,
+    })
+    .toBeGreaterThan(0)
+  await page.waitForTimeout(400)
+  expect(queries.every((item) => item === "bm25:复盘")).toBe(true)
+  expect(queries.length).toBeLessThanOrEqual(2)
+
+  await input.fill("")
+  await expect(page.getByRole("heading", { name: "全部资料" })).toBeVisible()
+  await typeSearchBurst(page, "评估报告")
+  await expect
+    .poll(() => queries.filter((item) => item === "bm25:评估报告").length, {
+      timeout: 2000,
+    })
+    .toBeGreaterThan(0)
+  await page.waitForTimeout(400)
+  const reportQueries = queries.filter((item) => item !== "bm25:复盘")
+  expect(reportQueries.every((item) => item === "bm25:评估报告")).toBe(true)
+  expect(reportQueries.length).toBeLessThanOrEqual(2)
+  await expect(
+    page.locator(".zm-result").filter({ hasText: "rag-eval.md" }),
+  ).toBeVisible()
+  await expect(
+    page.locator(".zm-result").filter({ hasText: "每周复盘模板" }),
+  ).toHaveCount(0)
+})
+
+test("语义模式下连续输入只发送最后一次关键词和向量检索", async ({ page }) => {
+  const queries: string[] = []
+  await page.route("**/api/v1/documents/search", async (route) => {
+    const body = route.request().postDataJSON() as {
+      query?: string
+      method?: string
+    }
+    queries.push(`${body.method ?? "bm25"}:${body.query ?? ""}`)
+    await route.fulfill({
+      json: {
+        query: body.query ?? "",
+        method: body.method ?? "bm25",
+        sources: [source],
+      },
+    })
+  })
+
+  await page.goto("/workspace")
+  await expect(page.getByRole("heading", { name: "全部资料" })).toBeVisible()
+  await page.getByRole("button", { name: "关键词检索" }).click()
+  await expect(page.getByRole("button", { name: "语义检索" })).toBeVisible()
+  await typeSearchBurst(page, "评估")
+  await expect
+    .poll(() => [...new Set(queries)].sort(), { timeout: 2000 })
+    .toEqual(["bm25:评估", "vector:评估"])
+  await page.waitForTimeout(400)
+  expect(queries.every((item) => item.endsWith(":评估"))).toBe(true)
+  expect(queries.length).toBeLessThanOrEqual(4)
+  await expect(
+    page.locator(".zm-result").filter({ hasText: "rag-eval.md" }),
+  ).toBeVisible()
+})
+
+test("清空或改词会取消旧检索，过期结果不会覆盖当前词", async ({ page }) => {
+  const seen: string[] = []
+  const failures: string[] = []
+  const waiters: Array<{ key: string; done: boolean; release: () => void }> = []
+  page.on("requestfailed", (request) => {
+    if (request.url().includes("/documents/search")) {
+      failures.push(request.failure()?.errorText ?? "failed")
+    }
+  })
+  await page.route("**/api/v1/documents/search", async (route) => {
+    const body = route.request().postDataJSON() as {
+      query?: string
+      method?: string
+    }
+    const key = `${body.method ?? "bm25"}:${body.query ?? ""}`
+    seen.push(key)
+    await new Promise<void>((resolve) => {
+      waiters.push({ key, done: false, release: resolve })
+    })
+    try {
+      await route.fulfill({
+        json: {
+          query: body.query ?? "",
+          method: body.method ?? "bm25",
+          sources: [
+            {
+              ...source,
+              filename: `${body.query ?? ""}.md`,
+              content: `结果 ${body.query ?? ""}`,
+            },
+          ],
+        },
+      })
+    } catch {
+      failures.push(`${key}:fulfill-rejected`)
+    }
+  })
+  const release = (key: string) => {
+    for (const waiter of waiters) {
+      if (waiter.key === key && !waiter.done) {
+        waiter.done = true
+        waiter.release()
+      }
+    }
+  }
+
+  try {
+    await page.goto("/workspace")
+    await expect(page.getByRole("heading", { name: "全部资料" })).toBeVisible()
+    const input = page.locator("#zm-search-input")
+    await input.fill("甲")
+    await expect.poll(() => seen.includes("bm25:甲")).toBe(true)
+    await input.fill("乙")
+    await expect.poll(() => seen.includes("bm25:乙")).toBe(true)
+    release("bm25:乙")
+    await expect(
+      page.locator(".zm-result").filter({ hasText: "乙.md" }),
+    ).toBeVisible()
+    release("bm25:甲")
+    await page.waitForTimeout(300)
+    await expect(
+      page.locator(".zm-result").filter({ hasText: "甲.md" }),
+    ).toHaveCount(0)
+    await expect(page.locator(".zm-results .zm-field__error")).toHaveCount(0)
+    await expect(
+      page.getByRole("heading", { name: "检索「乙」" }),
+    ).toBeVisible()
+
+    await input.fill("评估")
+    await expect.poll(() => seen.includes("bm25:评估")).toBe(true)
+    await page.getByRole("button", { name: "清除检索词" }).click()
+    await expect(page.getByRole("heading", { name: "全部资料" })).toBeVisible()
+    release("bm25:评估")
+    await page.waitForTimeout(300)
+    await expect(page.locator(".zm-results .zm-field__error")).toHaveCount(0)
+    await expect(page.getByText("文档检索失败")).toHaveCount(0)
+    await expect(page.getByText("无法连接服务")).toHaveCount(0)
+    expect(seen).toContain("bm25:甲")
+    expect(seen).toContain("bm25:评估")
+    expect(
+      failures.some((item) => item.startsWith("bm25:甲")) ||
+        failures.some((item) => /abort|cancel/i.test(item)),
+    ).toBe(true)
+  } finally {
+    for (const waiter of waiters) {
+      if (!waiter.done) {
+        waiter.done = true
+        waiter.release()
+      }
+    }
+  }
+})
+
 test("检索文档并在阅读视图打开，引用后提问带上文档范围", async ({ page }) => {
   await page.goto("/workspace")
   await page.locator("#zm-search-input").fill("评估")

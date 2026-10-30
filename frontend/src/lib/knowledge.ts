@@ -96,6 +96,7 @@ export async function searchDocuments(
   query: string,
   documentId?: string,
   method: RetrievalMethod = "bm25",
+  signal?: AbortSignal,
 ): Promise<SearchResult> {
   const response = await client.post<{ 200: SearchResult }, unknown, true>({
     url: "/api/v1/documents/search",
@@ -107,6 +108,7 @@ export async function searchDocuments(
       ...(documentId ? { document_id: documentId } : {}),
     },
     headers: { "Content-Type": "application/json" },
+    signal,
     timeout: 65_000,
     throwOnError: true,
   })
@@ -119,6 +121,19 @@ export async function deleteDocument(id: string) {
     security: [...security],
     throwOnError: true,
   })
+}
+
+/** 用户取消或被新输入作废的请求，不能展示成检索失败。 */
+export function isRequestCancelled(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false
+  if (isAxiosError(error)) return error.code === "ERR_CANCELED"
+  if (!(error instanceof Error)) return false
+  return (
+    error.name === "AbortError" ||
+    error.name === "CanceledError" ||
+    error.name === "CancelledError" ||
+    error.message === "CancelledError"
+  )
 }
 
 export function describeKnowledgeError(error: unknown): string {

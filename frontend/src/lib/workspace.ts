@@ -1,6 +1,10 @@
 import type { CodeWorkspaceFile } from "@/lib/code"
 import type { ImageRecord } from "@/lib/images"
-import type { DocumentRecord, KnowledgeSource } from "@/lib/knowledge"
+import type {
+  DocumentRecord,
+  KnowledgeSource,
+  SearchResult,
+} from "@/lib/knowledge"
 import type { NoteRecord } from "@/lib/notes"
 
 export type WsKind = "doc" | "note" | "image" | "code"
@@ -233,6 +237,50 @@ export function sourcesToItems(sources: KnowledgeSource[]): WsItem[] {
       `${source.filename} ${source.heading} ${source.content}`.toLowerCase(),
     documentId: source.document_id,
   }))
+}
+
+/**
+ * 当前词已经返回的结果优先。还在等时可以暂时留下上一批，
+ * 但查询词对不上的已完成结果不能当成当前词的结果。
+ */
+export function remoteDocumentSources(input: {
+  mode: "keyword" | "semantic"
+  term: string
+  keyword?: SearchResult
+  semantic?: SearchResult
+  keywordPlaceholder: boolean
+  semanticPlaceholder: boolean
+}): KnowledgeSource[] {
+  if (!input.term) return []
+  const keywordReady = settledSources(
+    input.keyword,
+    input.term,
+    input.keywordPlaceholder,
+  )
+  const semanticReady =
+    input.mode === "semantic"
+      ? settledSources(input.semantic, input.term, input.semanticPlaceholder)
+      : null
+  if (semanticReady) return semanticReady
+  if (keywordReady) return keywordReady
+  if (
+    input.mode === "semantic" &&
+    input.semanticPlaceholder &&
+    input.semantic
+  ) {
+    return input.semantic.sources
+  }
+  if (input.keywordPlaceholder && input.keyword) return input.keyword.sources
+  return []
+}
+
+function settledSources(
+  result: SearchResult | undefined,
+  term: string,
+  placeholder: boolean,
+): KnowledgeSource[] | null {
+  if (!result || placeholder || result.query !== term) return null
+  return result.sources
 }
 
 export function sourcesToRanked(sources: KnowledgeSource[]): RankedItem[] {

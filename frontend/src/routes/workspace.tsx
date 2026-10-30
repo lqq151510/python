@@ -1,4 +1,9 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import {
+  keepPreviousData,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query"
 import { createFileRoute, redirect } from "@tanstack/react-router"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 
@@ -21,6 +26,7 @@ import { createRequestId } from "@/lib/ids"
 import { fetchImageObjectUrl, listImages } from "@/lib/images"
 import {
   type DocumentDetail,
+  isRequestCancelled,
   type KnowledgeSource,
   listDocuments,
   readDocument,
@@ -35,6 +41,7 @@ import {
   KIND_LABEL,
   type RankedItem,
   rankItems,
+  remoteDocumentSources,
   sourcesToItems,
   sourcesToRanked,
   tokensOf,
@@ -56,6 +63,25 @@ export const Route = createFileRoute("/workspace")({
 const DOC_METHOD = "bm25" as const
 const MAX_CHAT_CHARS = 4000
 const MAX_CONTEXT_DOCUMENTS = 20
+const REMOTE_SEARCH_DELAY_MS = 300
+
+// 远程检索等输入停约 300ms。清空时马上改词，旧请求由 Query 的 signal 取消。
+function useRemoteSearchTerm(term: string): string {
+  const [remoteTerm, setRemoteTerm] = useState(term)
+
+  useEffect(() => {
+    if (!term) {
+      setRemoteTerm("")
+      return
+    }
+    const timer = window.setTimeout(() => {
+      setRemoteTerm(term)
+    }, REMOTE_SEARCH_DELAY_MS)
+    return () => window.clearTimeout(timer)
+  }, [term])
+
+  return remoteTerm
+}
 
 function WorkspacePage() {
   const queryClient = useQueryClient()
@@ -128,20 +154,27 @@ function WorkspacePage() {
   dataset.noteTotal = notesQuery.data?.count ?? 0
   const { documents, notes, items, codeFiles, counts } = dataset
 
-  const hasQuery = query.trim().length > 0
+  const trimmedQuery = query.trim()
+  const hasQuery = trimmedQuery.length > 0
+  const remoteQuery = useRemoteSearchTerm(trimmedQuery)
   const docsScope = scope === "all" || scope === "doc"
+  const remoteReady = hasQuery && remoteQuery === trimmedQuery
 
   const docSearch = useQuery({
-    queryKey: ["workspace-doc-search", query],
-    queryFn: () => searchDocuments(query.trim(), undefined, "bm25"),
-    enabled: hasQuery && docsScope,
+    queryKey: ["workspace-doc-search", trimmedQuery],
+    queryFn: ({ signal, queryKey }) =>
+      searchDocuments(String(queryKey[1] ?? ""), undefined, "bm25", signal),
+    enabled: remoteReady && docsScope,
+    placeholderData: keepPreviousData,
     retry: false,
   })
 
   const semantic = useQuery({
-    queryKey: ["workspace-semantic", query],
-    queryFn: () => searchDocuments(query.trim(), undefined, "vector"),
-    enabled: mode === "semantic" && hasQuery && docsScope,
+    queryKey: ["workspace-semantic", trimmedQuery],
+    queryFn: ({ signal, queryKey }) =>
+      searchDocuments(String(queryKey[1] ?? ""), undefined, "vector", signal),
+    enabled: mode === "semantic" && remoteReady && docsScope,
+    placeholderData: keepPreviousData,
     retry: false,
   })
 
@@ -158,10 +191,16 @@ function WorkspacePage() {
             )
         : ranked
     }
-    const docSources =
-      mode === "semantic" && semantic.data
-        ? semantic.data.sources
-        : (docSearch.data?.sources ?? [])
+    const docSources = docsScope
+      ? remoteDocumentSources({
+          mode,
+          term: trimmedQuery,
+          keyword: docSearch.data,
+          semantic: semantic.data,
+          keywordPlaceholder: docSearch.isPlaceholderData,
+          semanticPlaceholder: semantic.isPlaceholderData,
+        })
+      : []
     const docRows: RankedItem[] = docsScope ? sourcesToRanked(docSources) : []
     const others = items.filter(
       (item) => item.kind !== "doc" && (scope === "all" || item.kind === scope),
@@ -176,6 +215,7 @@ function WorkspacePage() {
       : merged
   }, [
     docSearch.data,
+    docSearch.isPlaceholderData,
     docsScope,
     hasQuery,
     items,
@@ -183,16 +223,22 @@ function WorkspacePage() {
     query,
     scope,
     semantic.data,
+    semantic.isPlaceholderData,
     sort,
+    trimmedQuery,
   ])
 
+  const keywordFailed =
+    Boolean(docSearch.error) && !isRequestCancelled(docSearch.error)
+  const semanticFailed =
+    Boolean(semantic.error) && !isRequestCancelled(semantic.error)
   const semanticWarning = !hasQuery
     ? null
-    : mode === "semantic" && semantic.error && docSearch.error
+    : mode === "semantic" && semanticFailed && keywordFailed
       ? "语义检索和关键词检索都失败了，笔记、图片和代码仍按已加载列表匹配。"
-      : mode === "semantic" && semantic.error
+      : mode === "semantic" && semanticFailed
         ? "语义检索不可用（需要本机向量服务），已回退为关键词检索。"
-        : docsScope && docSearch.error
+        : docsScope && keywordFailed
           ? "文档检索失败，笔记、图片和代码仍按已加载列表匹配。"
           : null
 
@@ -739,11 +785,14 @@ function WorkspacePage() {
                   docsScope &&
                   (docSearch.data || semantic.data)
                 )) ||
-              (hasQuery &&
+              (rows.length === 0 &&
+                hasQuery &&
                 docsScope &&
-                docSearch.isFetching &&
-                !docSearch.data) ||
-              (mode === "semantic" && semantic.isFetching && !semantic.data)
+                ((docSearch.isFetching && !docSearch.data) ||
+                  (mode === "semantic" &&
+                    semantic.isFetching &&
+                    !semantic.data &&
+                    !docSearch.data)))
             }
             warning={semanticWarning}
             activeId={activeId}
