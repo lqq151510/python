@@ -27,6 +27,12 @@ jobs:
         run: bash scripts/ci-env.sh >> "$GITHUB_ENV"
       - run: docker compose down -v --remove-orphans
       - run: docker compose up -d --wait db mailpit
+      - name: Create isolated test database
+        run: |
+          test_db="devassist_test_$(python -c 'import secrets; print(secrets.token_hex(6))')"
+          docker compose exec -T db createdb -U postgres "$test_db"
+          echo "DEVASSIST_TEST_DATABASE=$test_db" >> "$GITHUB_ENV"
+          echo "DATABASE_URL=${DATABASE_URL%/*}/$test_db" >> "$GITHUB_ENV"
       - name: Migrate DB
         run: uv run bash scripts/prestart.sh
         working-directory: backend

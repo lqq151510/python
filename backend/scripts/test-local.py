@@ -24,6 +24,7 @@ def main() -> int:
             created = True
             environment = dict(os.environ)
             environment["DATABASE_URL"] = base.set(database=name).render_as_string(hide_password=False)
+            environment["DEVASSIST_TEST_DATABASE"] = name
             root = Path(__file__).resolve().parents[1]
             print(f"使用独立临时测试数据库：{name}", flush=True)
             migrate = subprocess.run(["alembic", "upgrade", "head"], cwd=root, env=environment, check=False)

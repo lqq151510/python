@@ -214,6 +214,7 @@ def main() -> int:
                 "PYTHONPATH": str(ROOT / "backend"),
                 "PYTHONDONTWRITEBYTECODE": "1",
                 "DATABASE_URL": f"postgresql+psycopg://postgres:{password}@127.0.0.1:{port}/{database}",
+                "DEVASSIST_TEST_DATABASE": database,
                 "PROJECT_NAME": "DevAssist validation",
                 "SECRET_KEY": secrets.token_hex(32),
                 "FIRST_SUPERUSER": "admin@validation.example.com",

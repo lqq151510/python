@@ -62,6 +62,15 @@ Docker 启动后恢复了本机既有 `markitdown-service`，其 IPv6/wildcard �
 
 ## 复现命令
 
+后端测试会删除测试库中的用户及 Item。测试 fixture 在初始化之前检查实际数据库地址：
+必须是本机、由隔离入口生成的随机测试库，且与 `DEVASSIST_TEST_DATABASE` 标记一致。
+请通过下述 `test-local.py`，或从项目根目录使用 `.venv/bin/python
+scripts/verify-isolated.py --skip-runtime`，由脚本创建并标记临时库；直接对应用库运行
+`pytest` 会被拒绝。旧的 Compose 测试脚本默认使用应用库，不应绕过此保护。
+
+仅检查保护规则、不连接数据库时可在 `backend` 目录运行：
+`../.venv/bin/python -m unittest discover -s safety_tests -v`。
+
 ```bash
 # 项目根目录
 bash scripts/devassist-dev.sh

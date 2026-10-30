@@ -1,3 +1,4 @@
+import os
 from collections.abc import Generator
 
 import pytest
@@ -8,12 +9,14 @@ from app.core.config import settings
 from app.core.db import engine, init_db
 from app.main import app
 from app.models import Item, User
+from tests.db_guard import require_disposable_database
 from tests.utils.user import authentication_token_from_email
 from tests.utils.utils import get_superuser_token_headers
 
 
 @pytest.fixture(scope="session", autouse=True)
 def db() -> Generator[Session]:
+    require_disposable_database(engine.url, os.environ.get("DEVASSIST_TEST_DATABASE"))
     with Session(engine) as session:
         init_db(session)
         yield session
