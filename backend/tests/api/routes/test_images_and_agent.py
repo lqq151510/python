@@ -55,14 +55,15 @@ def test_images_stay_with_their_owner_and_empty_search_skips_the_model(
     monkeypatch.setattr(settings, "IMAGE_LIBRARY_DIR", tmp_path)
     calls = {"text": 0, "image": 0}
 
-    def embed_image(raw: bytes) -> list[float]:
+    def embed_image(raw: bytes) -> image_library.ImageEmbedding:
         calls["image"] += 1
-        return [1.0, 0.0] if raw.startswith(b"\xff\xd8\xff") else [0.0, 1.0]
+        vector = [1.0, 0.0] if raw.startswith(b"\xff\xd8\xff") else [0.0, 1.0]
+        return image_library.ImageEmbedding(vector=vector, space_id="a" * 64)
 
-    def embed_text(text: str) -> list[float]:
+    def embed_text(text: str) -> image_library.ImageEmbedding:
         calls["text"] += 1
         assert text
-        return [1.0, 0.0]
+        return image_library.ImageEmbedding(vector=[1.0, 0.0], space_id="a" * 64)
 
     monkeypatch.setattr(image_library, "embed_image", embed_image)
     monkeypatch.setattr(image_library, "embed_text", embed_text)

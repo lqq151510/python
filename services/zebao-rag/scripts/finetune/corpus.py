@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import sys
 from pathlib import Path
@@ -14,6 +15,9 @@ from pathlib import Path
 RAG_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(RAG_ROOT / "src"))
 
+from dataset_snapshot import sha256_bytes  # noqa: E402
+
+# isort: split
 from zebao_rag.chunking import _split_by_headings, _window  # noqa: E402
 
 PROJECT_ROOT = RAG_ROOT.parents[0]  # devassist
@@ -68,12 +72,17 @@ def main() -> int:
     args = parser.parse_args()
 
     out_dir = Path(args.out_dir)
-    out_dir.mkdir(parents=True, exist_ok=True)
+    corpus_path = out_dir / "corpus.jsonl"
+    stats_path = out_dir / "corpus_stats.json"
+    if any(path.exists() for path in (corpus_path, stats_path, out_dir / "queries.jsonl")):
+        parser.error("输出目录已有语料、统计或问题；请指定新的 --out-dir，避免覆盖旧实验")
 
     files = [path for path in DEFAULT_SOURCES if path.exists()]
     docs_dir = DEFAULT_DOC_DIR
     if docs_dir.exists():
         files.extend(sorted(docs_dir.glob("*.md")))
+    if len({path.name for path in files}) != len(files):
+        parser.error("来源文件名重复，无法按文件名正确划分训练和验证集")
 
     chunks: list[dict[str, str | int]] = []
     for path in files:
@@ -82,11 +91,15 @@ def main() -> int:
     kept = [row for row in chunks if len(str(row["text"])) >= args.min_chars]
     train = [row for row in kept if row["source"] not in DEFAULT_VAL_SOURCES]
     val = [row for row in kept if row["source"] in DEFAULT_VAL_SOURCES]
-
-    corpus_path = out_dir / "corpus.jsonl"
-    with corpus_path.open("w", encoding="utf-8") as handle:
-        for row in kept:
-            handle.write(json.dumps(row, ensure_ascii=False) + "\n")
+    ids = [row["id"] for row in kept]
+    if len(set(ids)) != len(ids):
+        parser.error("片段 ID 重复，请检查来源文件名")
+    corpus_bytes = "".join(
+        json.dumps(row, ensure_ascii=False) + "\n" for row in kept
+    ).encode("utf-8")
+    out_dir.mkdir(parents=True, exist_ok=True)
+    with corpus_path.open("xb") as output:
+        output.write(corpus_bytes)
 
     stats = {
         "files": [path.name for path in files],
@@ -97,10 +110,17 @@ def main() -> int:
         "val_sources": sorted(DEFAULT_VAL_SOURCES),
         "avg_chars": round(sum(len(str(row["text"])) for row in kept) / max(len(kept), 1)),
         "corpus_path": str(corpus_path),
+        "snapshot_version": 1,
+        "chunking_method": "zebao_rag_headings_window_500_overlap_80",
+        "corpus_sha256": sha256_bytes(corpus_bytes),
+        "source_sha256": {path.name: hashlib.sha256(path.read_bytes()).hexdigest() for path in files},
+        "chunking_sha256": hashlib.sha256(
+            Path(sys.modules["zebao_rag.chunking"].__file__).read_bytes()
+        ).hexdigest(),
+        "min_chars": args.min_chars,
     }
-    (out_dir / "corpus_stats.json").write_text(
-        json.dumps(stats, ensure_ascii=False, indent=2), encoding="utf-8"
-    )
+    with stats_path.open("x", encoding="utf-8") as output:
+        output.write(json.dumps(stats, ensure_ascii=False, indent=2))
     print(json.dumps(stats, ensure_ascii=False, indent=2))
     return 0
 

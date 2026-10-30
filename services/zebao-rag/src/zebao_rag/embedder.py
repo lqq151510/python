@@ -27,6 +27,8 @@ QUERY_INSTRUCTION = "Retrieve relevant images for the query."
 # 训练只用了文本对，图片向量会跟着变，所以切换后必须重新 build 索引，
 # 否则库里的旧向量和新查询向量不在同一个空间里。
 ADAPTER_PATH = os.environ.get("ZEBAO_RAG_ADAPTER", "").strip()
+_WORKER_MODEL_PATH: str | None = None
+_WORKER_ADAPTER_PATH: str | None = None
 
 
 def pick_device() -> str:
@@ -43,18 +45,57 @@ def get_model() -> SentenceTransformer:
     """全局只加载一次模型（首次会从 HuggingFace 下载，约 4.5GB）。"""
     device = pick_device()
     model = SentenceTransformer(
-        MODEL_NAME,
+        _WORKER_MODEL_PATH or MODEL_NAME,
         device=device,
-        local_files_only=os.environ.get("HF_HUB_OFFLINE", "0").lower()
+        local_files_only=bool(_WORKER_MODEL_PATH) or os.environ.get("HF_HUB_OFFLINE", "0").lower()
         in {"1", "true", "yes"},
     )
-    if ADAPTER_PATH:
+    adapter_path = _WORKER_ADAPTER_PATH or ADAPTER_PATH
+    if adapter_path:
         from pathlib import Path
 
-        if not Path(ADAPTER_PATH).is_dir():
-            raise RuntimeError(f"ZEBAO_RAG_ADAPTER 指向的目录不存在：{ADAPTER_PATH}")
-        model.load_adapter(ADAPTER_PATH)
+        if not Path(adapter_path).is_dir():
+            raise RuntimeError("ZEBAO_RAG_ADAPTER 指向的目录不存在")
+        model.load_adapter(adapter_path)
     return model
+
+
+def get_verified_identity(text_instruction: str) -> dict[str, str]:
+    """Pin local artifacts, load them, and reject changes during loading.
+
+    A download is allowed only when HF_HUB_OFFLINE=0 was explicitly selected.
+    The resulting local snapshot is fixed before hashing and loading.
+    """
+    global _WORKER_MODEL_PATH, _WORKER_ADAPTER_PATH
+    from pathlib import Path
+
+    from huggingface_hub import snapshot_download
+
+    from .identity import IdentityUnavailable, artifact_fingerprints, make_identity
+
+    if get_model.cache_info().currsize:
+        raise IdentityUnavailable("model was loaded before identity verification")
+    try:
+        local = Path(MODEL_NAME).expanduser()
+        model_path = (local if local.is_dir() else Path(snapshot_download(
+            repo_id=MODEL_NAME,
+            local_files_only=os.environ.get("HF_HUB_OFFLINE", "1").strip() != "0",
+        ))).resolve(strict=True)
+        adapter_path = Path(ADAPTER_PATH).expanduser().resolve(strict=True) if ADAPTER_PATH else None
+        before = artifact_fingerprints(model_path, adapter_path)
+        implementation_before = encoding_implementation_id()
+        _WORKER_MODEL_PATH = str(model_path)
+        _WORKER_ADAPTER_PATH = str(adapter_path) if adapter_path else None
+        get_model()
+        after = artifact_fingerprints(model_path, adapter_path)
+        implementation_after = encoding_implementation_id()
+        if before != after or implementation_before != implementation_after:
+            raise IdentityUnavailable("model artifacts changed during loading")
+        return make_identity(after, text_instruction, implementation_after)
+    except IdentityUnavailable:
+        raise
+    except Exception:
+        raise IdentityUnavailable("model identity could not be established") from None
 
 
 def encode_texts(
@@ -93,3 +134,16 @@ def _encode_loaded(images: list[Image.Image]) -> list[list[float]]:
         show_progress_bar=len(images) > 8,
     )
     return vec.tolist()
+
+
+def encoding_implementation_id() -> str:
+    """Fingerprint the executable model loading and text/image encoding code."""
+    from .identity import implementation_fingerprint
+
+    return implementation_fingerprint({
+        "get_model": get_model,
+        "pick_device": pick_device,
+        "encode_texts": encode_texts,
+        "encode_image_bytes": encode_image_bytes,
+        "_encode_loaded": _encode_loaded,
+    })

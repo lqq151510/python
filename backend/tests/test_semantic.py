@@ -63,13 +63,17 @@ def test_worker_rpc_is_authenticated_and_does_not_use_environment_proxy(
     monkeypatch.setattr(settings, "RAG_WORKER_ENABLED", True)
     monkeypatch.setattr(settings, "RAG_CACHE_ENABLED", False)
     real_client = httpx.Client
+    identity = {"space_id": "a" * 64, "protocol_id": "b" * 64, "generation": "c" * 32}
 
     def respond(request: httpx.Request) -> httpx.Response:
         assert request.url.host == "127.0.0.1"
         assert request.headers["Authorization"] == "Bearer " + token.read_text()
+        if request.method == "GET":
+            return httpx.Response(200, json={"status": "ready", "identity": identity})
         payload = json.loads(request.content)
         assert payload["chunks"] == [{"id": "a", "text": "authorized-only"}]
-        return httpx.Response(200, json={"hits": [{"id": "a", "score": 0.9}]})
+        assert payload["expected_identity"] == identity
+        return httpx.Response(200, json={"hits": [{"id": "a", "score": 0.9}], "identity": identity})
 
     def make_client(**kwargs):
         assert kwargs == {"trust_env": False, "follow_redirects": False}

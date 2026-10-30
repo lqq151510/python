@@ -2,19 +2,19 @@
 
 import base64
 import json
-import os
-import tempfile
 import threading
 import unittest
 from http.server import ThreadingHTTPServer
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 from urllib.error import HTTPError
 from urllib.request import ProxyHandler, Request, build_opener
 
 from pydantic import ValidationError
+
 from zebao_rag import milvus_store
 from zebao_rag.worker import Embedder, Ranker, RankRequest, handler_type
 
+IDENTITY = {"space_id": "a" * 64, "protocol_id": "b" * 64, "generation": "c" * 32}
 
 def encode(texts, **kwargs):
     return [[1.0, 0.0] if "cache" in text else [0.0, 1.0] for text in texts]
@@ -59,7 +59,7 @@ class WorkerTests(unittest.TestCase):
 
     def test_http_authentication_validation_and_ranking(self):
         token = "test-only-token-" * 3
-        server = ThreadingHTTPServer(("127.0.0.1", 0), handler_type(self.ranker, token))
+        server = ThreadingHTTPServer(("127.0.0.1", 0), handler_type(self.ranker, token, identity=IDENTITY))
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
         base = f"http://127.0.0.1:{server.server_port}"
@@ -73,12 +73,20 @@ class WorkerTests(unittest.TestCase):
                 "Content-Type": "application/json",
             }
             data = json.dumps(
-                {"query": "cache", "chunks": [{"id": "a", "text": "cache"}]}
+                {"query": "cache", "chunks": [{"id": "a", "text": "cache"}], "expected_identity": IDENTITY}
             ).encode()
             with opener.open(
                 Request(base + "/rank", data=data, headers=headers)
             ) as response:
-                self.assertEqual(json.load(response)["hits"][0]["id"], "a")
+                result = json.load(response)
+                self.assertEqual(result["hits"][0]["id"], "a")
+                self.assertEqual(result["identity"], IDENTITY)
+            with opener.open(Request(base + "/health", headers=headers)) as response:
+                self.assertEqual(json.load(response)["identity"], IDENTITY)
+            missing_identity = json.dumps({"query": "cache", "chunks": [{"id": "a", "text": "cache"}]}).encode()
+            with self.assertRaises(HTTPError) as mismatch:
+                opener.open(Request(base + "/rank", data=missing_identity, headers=headers))
+            self.assertEqual(mismatch.exception.code, 409)
             with self.assertRaises(HTTPError) as caught:
                 opener.open(Request(base + "/rank", data=b"{}", headers=headers))
             self.assertEqual(caught.exception.code, 422)
@@ -103,7 +111,7 @@ class EmbedTests(unittest.TestCase):
         token = "test-only-token-" * 3
         embedder = Embedder(encode_text, encode_image)
         server = ThreadingHTTPServer(
-            ("127.0.0.1", 0), handler_type(Ranker(encode), token, embedder)
+            ("127.0.0.1", 0), handler_type(Ranker(encode), token, embedder, IDENTITY)
         )
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
@@ -123,7 +131,14 @@ class EmbedTests(unittest.TestCase):
             with opener.open(
                 Request(base + "/embed", data=data, headers=headers)
             ) as response:
-                self.assertEqual(json.load(response)["vector"], [0.2, 0.8])
+                result = json.load(response)
+                self.assertEqual(result["vector"], [0.2, 0.8])
+                self.assertEqual(result["identity"], IDENTITY)
+            different_identity = dict(IDENTITY, generation="d" * 32)
+            data = json.dumps({"kind": "text", "text": "query", "expected_identity": different_identity}).encode()
+            with self.assertRaises(HTTPError) as mismatch:
+                opener.open(Request(base + "/embed", data=data, headers=headers))
+            self.assertEqual(mismatch.exception.code, 409)
             image = json.dumps(
                 {
                     "kind": "image",
@@ -150,36 +165,58 @@ class EmbedTests(unittest.TestCase):
 
 
 class MilvusStoreTests(unittest.TestCase):
-    def test_embedding_dimension_change_rebuilds_derived_index(self):
-        with tempfile.TemporaryDirectory() as directory:
-            environment = {
-                "ZEBAO_MILVUS_URL": os.path.join(directory, "index.db"),
-                "ZEBAO_MILVUS_COLLECTION": "test_dimension_change",
-            }
-            with patch.dict(os.environ, environment):
-                milvus_store.client.cache_clear()
-                try:
-                    first = milvus_store.rank(
-                        "test-owner",
-                        ["a"],
-                        ["alpha"],
-                        [[1.0, 0.0]],
-                        [[1.0, 0.0]],
-                        1,
-                    )
-                    self.assertEqual(first, [{"id": "a", "score": 1.0}])
-                    second = milvus_store.rank(
-                        "test-owner",
-                        ["a"],
-                        ["alpha"],
-                        [[1.0, 0.0, 0.0]],
-                        [[1.0, 0.0, 0.0]],
-                        1,
-                    )
-                    self.assertEqual(second, [{"id": "a", "score": 1.0}])
-                finally:
-                    milvus_store.client().close()
-                    milvus_store.client.cache_clear()
+    def test_same_dimension_model_spaces_do_not_overwrite_each_other(self):
+        connection = MagicMock()
+        connection.has_collection.return_value = True
+        connection.describe_collection.return_value = {"fields": [{"name": "vector", "params": {"dim": 2}}]}
+        connection.search.return_value = [[]]
+        with patch.object(milvus_store, "client", return_value=connection):
+            for space in ("a" * 64, "b" * 64):
+                milvus_store.rank("owner", ["a"], ["alpha"], [[1.0, 0.0]], [[1.0, 0.0]], 1, space_id=space)
+        keys = [call.kwargs["data"][0]["id"] for call in connection.upsert.call_args_list]
+        self.assertNotEqual(keys[0], keys[1])
+        connection.drop_collection.assert_not_called()
+
+    def test_dimension_mismatch_never_deletes_or_writes_collection(self):
+        connection = MagicMock()
+        connection.has_collection.return_value = True
+        connection.describe_collection.return_value = {
+            "fields": [{"name": "vector", "params": {"dim": 3}}]
+        }
+        with patch.object(milvus_store, "client", return_value=connection):
+            with self.assertRaises(milvus_store.MilvusDimensionMismatch):
+                milvus_store.rank("owner", ["a"], ["alpha"], [[1.0, 0.0]], [[1.0, 0.0]], 1, space_id=IDENTITY["space_id"])
+        connection.drop_collection.assert_not_called()
+        connection.create_collection.assert_not_called()
+        connection.upsert.assert_not_called()
+        connection.search.assert_not_called()
+
+    def test_dimension_mismatch_becomes_worker_503(self):
+        connection = MagicMock()
+        connection.has_collection.return_value = True
+        connection.describe_collection.return_value = {
+            "fields": [{"name": "vector", "params": {"dim": 3}}]
+        }
+        token = "test-only-token-" * 3
+        server = ThreadingHTTPServer(
+            ("127.0.0.1", 0), handler_type(Ranker(encode, client=object()), token, identity=IDENTITY)
+        )
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        data = json.dumps({"query": "cache", "chunks": [{"id": "a", "text": "cache"}], "engine": "milvus", "expected_identity": IDENTITY}).encode()
+        headers = {"Authorization": "Bearer " + token, "Content-Type": "application/json"}
+        try:
+            with patch.object(milvus_store, "client", return_value=connection):
+                with self.assertRaises(HTTPError) as caught:
+                    build_opener(ProxyHandler({})).open(Request(f"http://127.0.0.1:{server.server_port}/rank", data=data, headers=headers))
+            self.assertEqual(caught.exception.code, 503)
+            self.assertEqual(json.load(caught.exception)["code"], "ranking_failed")
+            connection.drop_collection.assert_not_called()
+            connection.upsert.assert_not_called()
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join()
 
 
 if __name__ == "__main__":

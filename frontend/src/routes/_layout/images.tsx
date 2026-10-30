@@ -8,9 +8,11 @@ import useAuth from "@/hooks/useAuth"
 import {
   deleteImage,
   describeImageError,
+  describeReembedError,
   fetchImageObjectUrl,
   type ImageHit,
   listImages,
+  reembedImage,
   searchByImage,
   searchImages,
   uploadImage,
@@ -31,6 +33,7 @@ function Images() {
   const [inputError, setInputError] = useState("")
   const [previews, setPreviews] = useState<Record<string, string>>({})
   const uploadLock = useRef(false)
+  const reembedLock = useRef(false)
   const fileInput = useRef<HTMLInputElement>(null)
   const images = useQuery({
     queryKey: ["images", user?.id],
@@ -58,11 +61,27 @@ function Images() {
   const remove = useMutation({
     mutationFn: deleteImage,
     retry: false,
+    onMutate: () => {
+      if (reembed.isError) reembed.reset()
+    },
     onSuccess: async () => {
       setNotice("图片已删除。")
       textSearch.reset()
       imageSearch.reset()
       await queryClient.invalidateQueries({ queryKey: ["images", user?.id] })
+    },
+  })
+  const reembed = useMutation({
+    mutationFn: reembedImage,
+    retry: false,
+    onMutate: () => {
+      setNotice("")
+      setInputError("")
+    },
+    onSuccess: (result) => {
+      textSearch.reset()
+      imageSearch.reset()
+      setNotice(result.message)
     },
   })
   const hits = textSearch.data?.hits ?? imageSearch.data?.hits ?? []
@@ -94,14 +113,28 @@ function Images() {
     }
   }, [hitKey])
   const failure =
+    reembed.error ||
     images.error ||
     upload.error ||
     textSearch.error ||
     imageSearch.error ||
     remove.error
 
+  async function handleReembed(id: string) {
+    if (reembedLock.current) return
+    reembedLock.current = true
+    try {
+      await reembed.mutateAsync(id)
+    } catch {
+      // 失败时继续显示原图和服务端错误。
+    } finally {
+      reembedLock.current = false
+    }
+  }
+
   async function handleUpload(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
+    if (reembed.isError) reembed.reset()
     if (uploadLock.current) return
     setInputError("")
     setNotice("")
@@ -125,6 +158,7 @@ function Images() {
 
   async function handleTextSearch(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
+    if (reembed.isError) reembed.reset()
     setInputError("")
     const trimmed = query.trim()
     if (!trimmed || Array.from(trimmed).length > 1000) {
@@ -141,6 +175,7 @@ function Images() {
 
   async function handleImageSearch(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
+    if (reembed.isError) reembed.reset()
     setInputError("")
     textSearch.reset()
     if (!queryFile || !/\.(jpe?g|png)$/i.test(queryFile.name)) {
@@ -205,7 +240,9 @@ function Images() {
         )}
         {failure && (
           <p role="alert" className="da-inline-error">
-            {describeImageError(failure)}
+            {reembed.error
+              ? describeReembedError(reembed.error)
+              : describeImageError(failure)}
           </p>
         )}
         {notice && (
@@ -218,7 +255,9 @@ function Images() {
             <h2>
               我的图片 <span>{images.data?.count ?? 0} / 20</span>
             </h2>
-            <small>只保存在当前账号下</small>
+            <small>
+              只保存在当前账号下，可逐张重新生成检索向量；原图不会修改。
+            </small>
           </div>
           {images.isPending && <p className="da-note">正在读取图片…</p>}
           {images.data?.data.length === 0 && (
@@ -237,6 +276,18 @@ function Images() {
                 <LoadingButton
                   className="da-secondary"
                   type="button"
+                  disabled={reembed.isPending || remove.isPending}
+                  loading={reembed.isPending && reembed.variables === image.id}
+                  onClick={() => void handleReembed(image.id)}
+                >
+                  {reembed.isPending && reembed.variables === image.id
+                    ? "正在生成检索向量…"
+                    : "重新生成检索向量"}
+                </LoadingButton>
+                <LoadingButton
+                  className="da-secondary"
+                  type="button"
+                  disabled={reembed.isPending}
                   loading={remove.isPending}
                   onClick={() => remove.mutate(image.id)}
                 >

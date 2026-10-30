@@ -8,14 +8,17 @@ import base64
 import hashlib
 import json
 import math
+import re
 import uuid
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from time import monotonic
 
 import httpx
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy import update
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlmodel import Session, col, func, select
 
 from app.core.config import settings
@@ -31,6 +34,14 @@ class ImageError(Exception):
     def __init__(self, status_code: int, code: str, message: str) -> None:
         self.status_code, self.code, self.message = status_code, code, message
         super().__init__(code)
+
+
+@dataclass(frozen=True)
+class ImageEmbedding:
+    """A vector and the embedding space returned in the same worker response."""
+
+    vector: list[float]
+    space_id: str
 
 
 class ImagePublic(BaseModel):
@@ -91,17 +102,18 @@ def parse_image(filename: str, raw: bytes) -> tuple[str, str, str]:
     return name, media_type, hashlib.sha256(raw).hexdigest()
 
 
-def embed_text(text: str) -> list[float]:
+def embed_text(text: str) -> ImageEmbedding:
     return _embed({"kind": "text", "text": text, "is_query": True})
 
 
-def embed_image(raw: bytes) -> list[float]:
+def embed_image(raw: bytes, *, attempts: int = EMBED_ATTEMPTS) -> ImageEmbedding:
     return _embed(
         {
             "kind": "image",
             "image_base64": base64.b64encode(raw).decode("ascii"),
             "is_query": False,
-        }
+        },
+        attempts=attempts,
     )
 
 
@@ -129,7 +141,7 @@ def store_image(
     if existing:
         return existing, True
     # 嵌入失败时不占名额、不写文件。锁只包住最后的名额检查。
-    vector = embed_image(raw)
+    embedding = embed_image(raw)
     session.exec(select(User).where(User.id == owner_id).with_for_update()).one()
     existing = _owned_digest(session, owner_id, digest)
     if existing:
@@ -149,7 +161,9 @@ def store_image(
         sha256=digest,
         size_bytes=len(raw),
         media_type=media_type,
-        embedding_json=json.dumps(vector),
+        embedding_json=json.dumps(
+            {"version": 1, "space_id": embedding.space_id, "vector": embedding.vector}
+        ),
     )
     session.add(asset)
     session.flush()
@@ -175,6 +189,9 @@ def search_text(
     assets = _owned_assets(session, owner_id)
     if not assets:
         return []
+    # Fail before a model call when any historical vector has no valid identity.
+    for asset in assets:
+        _load_vector(asset.embedding_json)
     return _rank(assets, embed_text(query), limit)
 
 
@@ -189,7 +206,86 @@ def search_image(
     assets = _owned_assets(session, owner_id)
     if not assets:
         return []
+    for asset in assets:
+        _load_vector(asset.embedding_json)
     return _rank(assets, embed_image(raw), limit)
+
+
+def reembed_image(session: Session, owner_id: uuid.UUID, image_id: uuid.UUID) -> None:
+    """Re-encode one owned image, then atomically replace its unchanged vector."""
+    asset = owned_asset(session, owner_id, image_id)
+    filename = asset.filename
+    digest = asset.sha256
+    media_type = asset.media_type
+    size_bytes = asset.size_bytes
+    original_embedding = asset.embedding_json
+    # Authentication and ownership queries open a transaction; release it before
+    # reading the file and waiting for the model. Do not retain an ORM object.
+    session.rollback()
+
+    def read_verified_image() -> bytes:
+        path = _asset_path(owner_id, image_id, media_type)
+        try:
+            with path.open("rb") as source:
+                raw = source.read(MAX_IMAGE_BYTES + 1)
+        except OSError:
+            raise ImageError(
+                404, "image_not_found", "图片文件不存在或无法读取。"
+            ) from None
+        _, actual_media_type, actual_digest = parse_image(filename, raw)
+        if (
+            actual_digest != digest
+            or actual_media_type != media_type
+            or len(raw) != size_bytes
+        ):
+            raise ImageError(
+                409, "image_file_changed", "图片文件已变化，未更新检索向量。"
+            )
+        return raw
+
+    payload = read_verified_image()
+    # A user-triggered rebuild never automatically repeats model work.
+    embedding = embed_image(payload, attempts=1)
+    try:
+        read_verified_image()
+    except ImageError:
+        raise ImageError(
+            409, "image_rebuild_conflict", "图片文件已变化或被删除，请刷新后重试。"
+        ) from None
+    replacement = json.dumps(
+        {
+            "version": 2,
+            "space_id": embedding.space_id,
+            "vector": embedding.vector,
+            "revision": uuid.uuid4().hex,
+        }
+    )
+    try:
+        result = session.execute(
+            update(ImageAsset)
+            .where(
+                ImageAsset.id == image_id,
+                ImageAsset.owner_id == owner_id,
+                ImageAsset.sha256 == digest,
+                ImageAsset.media_type == media_type,
+                ImageAsset.size_bytes == size_bytes,
+                ImageAsset.embedding_json == original_embedding,
+            )
+            .values(embedding_json=replacement)
+        )
+        if result.rowcount != 1:
+            session.rollback()
+            raise ImageError(
+                409, "image_rebuild_conflict", "图片已变化或被删除，请刷新后重试。"
+            )
+        session.commit()
+    except SQLAlchemyError:
+        session.rollback()
+        raise ImageError(
+            503,
+            "image_rebuild_unavailable",
+            "检索向量的更新结果暂不可确认，请刷新后检查；原图未被修改。",
+        ) from None
 
 
 def owned_asset(
@@ -250,17 +346,19 @@ def _asset_path(owner_id: uuid.UUID, image_id: uuid.UUID, media_type: str) -> Pa
     return path
 
 
-def _rank(assets: list[ImageAsset], query: list[float], limit: int) -> list[ImageHit]:
+def _rank(
+    assets: list[ImageAsset], query: ImageEmbedding, limit: int
+) -> list[ImageHit]:
     scored: list[tuple[float, ImageAsset]] = []
     for asset in assets:
         stored = _load_vector(asset.embedding_json)
-        if len(stored) != len(query):
+        if stored.space_id != query.space_id or len(stored.vector) != len(query.vector):
             raise ImageError(
                 503,
                 "embedding_mismatch",
-                "图片向量与当前嵌入模型不一致，请重新上传。",
+                "图片向量与当前嵌入模型不一致，暂时无法检索；原图仍可查看。",
             )
-        score = _cosine(stored, query)
+        score = _cosine(stored.vector, query.vector)
         if score >= settings.RAG_MIN_SIMILARITY:
             scored.append((score, asset))
     scored.sort(key=lambda item: (-item[0], item[1].filename, str(item[1].id)))
@@ -275,29 +373,51 @@ def _rank(assets: list[ImageAsset], query: list[float], limit: int) -> list[Imag
     ]
 
 
-def _load_vector(raw: str) -> list[float]:
+def _load_vector(raw: str) -> ImageEmbedding:
     try:
         parsed = json.loads(raw)
     except json.JSONDecodeError:
         raise ImageError(
             503, "embedding_corrupt", "已保存的图片向量无法读取。"
         ) from None
-    return _require_vector(parsed)
+    if isinstance(parsed, list):
+        # Historical vectors have no identity; do not guess which model made them.
+        raise ImageError(
+            409,
+            "embedding_identity_unknown",
+            "旧图片向量的模型身份未知，暂时无法检索；原图仍可查看。",
+        )
+    if not isinstance(parsed, dict):
+        raise ImageError(503, "embedding_corrupt", "已保存的图片向量无法读取。")
+    version = parsed.get("version")
+    if type(version) is not int or version not in (1, 2):
+        raise ImageError(503, "embedding_corrupt", "已保存的图片向量版本不受支持。")
+    fields = {"version", "space_id", "vector"}
+    if version == 2:
+        fields.add("revision")
+    if set(parsed) != fields:
+        raise ImageError(503, "embedding_corrupt", "已保存的图片向量无法读取。")
+    if version == 2:
+        _require_hex(parsed["revision"], 32)
+    space_id = _require_hex(parsed["space_id"], 64)
+    return ImageEmbedding(vector=_require_vector(parsed["vector"]), space_id=space_id)
 
 
-def _embed(payload: dict[str, object]) -> list[float]:
+def _embed(
+    payload: dict[str, object], *, attempts: int = EMBED_ATTEMPTS
+) -> ImageEmbedding:
     if not settings.RAG_WORKER_ENABLED:
         raise ImageError(503, "embedding_disabled", "未启用嵌入模型，图片检索不可用。")
     timeout = min(30.0, float(settings.RAG_WORKER_TIMEOUT_SECONDS))
     deadline = monotonic() + timeout
-    for attempt in range(EMBED_ATTEMPTS):
+    for attempt in range(attempts):
         remaining = deadline - monotonic()
         if remaining <= 0:
             raise ImageError(503, "embedding_timeout", "嵌入模型请求超时，请稍后重试。")
         try:
             return _embed_once(payload, remaining)
         except httpx.ConnectError:
-            if attempt == EMBED_ATTEMPTS - 1:
+            if attempt == attempts - 1:
                 break
             continue
         except httpx.TimeoutException:
@@ -309,7 +429,7 @@ def _embed(payload: dict[str, object]) -> list[float]:
     )
 
 
-def _embed_once(payload: dict[str, object], timeout: float) -> list[float]:
+def _embed_once(payload: dict[str, object], timeout: float) -> ImageEmbedding:
     try:
         token = TOKEN_PATH.read_text().strip()
     except OSError:
@@ -341,7 +461,30 @@ def _embed_once(payload: dict[str, object], timeout: float) -> list[float]:
     except ValueError:
         raise ImageError(503, "embedding_invalid", "嵌入模型返回了无效结果。") from None
     vector = body.get("vector") if isinstance(body, dict) else None
-    return _require_vector(vector)
+    identity = body.get("identity") if isinstance(body, dict) else None
+    if not isinstance(identity, dict) or set(identity) != {
+        "space_id",
+        "protocol_id",
+        "generation",
+    }:
+        raise ImageError(
+            503, "embedding_identity_invalid", "嵌入服务未提供有效的模型身份。"
+        )
+    space_id = _require_hex(identity.get("space_id"), 64)
+    _require_hex(identity.get("protocol_id"), 64)
+    _require_hex(identity.get("generation"), 32)
+    return ImageEmbedding(vector=_require_vector(vector), space_id=space_id)
+
+
+def _require_hex(value: object, length: int) -> str:
+    if (
+        not isinstance(value, str)
+        or re.fullmatch(rf"[0-9a-f]{{{length}}}", value) is None
+    ):
+        raise ImageError(
+            503, "embedding_identity_invalid", "嵌入服务返回了无效的模型身份。"
+        )
+    return value
 
 
 def _require_vector(value: object) -> list[float]:

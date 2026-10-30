@@ -13,6 +13,7 @@ import time
 from pathlib import Path
 
 import httpx
+from dataset_snapshot import read_snapshot, text_sha256
 
 RAG_ROOT = Path(__file__).resolve().parents[2]
 
@@ -58,16 +59,16 @@ def main() -> int:
     args = parser.parse_args()
 
     work = Path(args.work_dir)
-    corpus = [json.loads(line) for line in (work / "corpus.jsonl").read_text(encoding="utf-8").splitlines() if line.strip()]
-    stats = json.loads((work / "corpus_stats.json").read_text(encoding="utf-8"))
+    try:
+        corpus, existing_queries, stats, metadata = read_snapshot(
+            work, require_queries=False
+        )
+    except (OSError, ValueError, KeyError) as exc:
+        parser.error(str(exc))
     val_sources = set(stats["val_sources"])
 
     out_path = work / "queries.jsonl"
-    done: set[str] = set()
-    if out_path.exists():
-        for line in out_path.read_text(encoding="utf-8").splitlines():
-            if line.strip():
-                done.add(json.loads(line)["chunk_id"])
+    done = {row["chunk_id"] for row in existing_queries}
 
     def in_split(source: str) -> bool:
         if args.split == "all":
@@ -111,7 +112,8 @@ def main() -> int:
                 continue
             out.write(
                 json.dumps(
-                    {"chunk_id": row["id"], "source": row["source"], "query": query},
+                    {"chunk_id": row["id"], "source": row["source"], "query": query,
+                     "chunk_sha256": text_sha256(row["text"])},
                     ensure_ascii=False,
                 )
                 + "\n"
@@ -134,6 +136,7 @@ def main() -> int:
                 "total_queries": len(done) + generated,
                 "elapsed_s": round(time.time() - started),
                 "path": str(out_path),
+                "prior_question_provenance": metadata["question_provenance"],
             },
             ensure_ascii=False,
         ),

@@ -1,6 +1,7 @@
 """Narrow local RPC: only IDs from the authorized SQL snapshot may be returned."""
 
 import math
+import re
 from pathlib import Path
 from time import monotonic
 from typing import Any
@@ -14,12 +15,27 @@ TOKEN_PATH = Path(__file__).resolve().parents[2] / ".local/zebao-rag/worker.toke
 MAX_VECTOR_CHUNKS = 256
 # Match the upload quota: at most 20 documents, each with 256 chunks.
 MAX_VECTOR_CANDIDATES = 20 * MAX_VECTOR_CHUNKS
+# Redis uses multiple independently timed synchronous operations. Skip it when
+# little time remains. The post-call deadline check prevents late results from
+# being returned, but cannot interrupt an already blocking Redis operation.
+CACHE_MIN_BUDGET_SECONDS = 2.0
 
 
 class SemanticUnavailable(Exception):
     def __init__(self, code: str = "vector_unavailable") -> None:
         self.code = code
         super().__init__(code)
+
+
+def validate_identity(payload: Any) -> dict[str, str]:
+    identity = payload.get("identity") if isinstance(payload, dict) else None
+    if not isinstance(identity, dict) or set(identity) != {"space_id", "protocol_id", "generation"}:
+        raise SemanticUnavailable("vector_identity_unavailable")
+    for key, pattern in (("space_id", r"[0-9a-f]{64}"), ("protocol_id", r"[0-9a-f]{64}"), ("generation", r"[0-9a-f]{32}")):
+        value = identity.get(key)
+        if not isinstance(value, str) or not re.fullmatch(pattern, value):
+            raise SemanticUnavailable("vector_identity_unavailable")
+    return identity
 
 
 @observe_operation("vector_rank")
@@ -43,23 +59,6 @@ def vector_rank(
     if not identifiers:
         return []
     engine = engine or settings.RAG_VECTOR_STORE
-    cache_key = retrieval_cache.key_for(
-        namespace,
-        engine,
-        query,
-        identifiers,
-        texts,
-        limit,
-        identity=settings.RAG_EMBEDDING_IDENTITY,
-    )
-    cached, status = retrieval_cache.get(cache_key, namespace)
-    if cache_info is not None:
-        cache_info["status"] = status
-    if cached is not None:
-        try:
-            return validate_hits(cached, identifiers, limit)
-        except SemanticUnavailable:
-            pass
     deadline = monotonic() + settings.RAG_WORKER_TIMEOUT_SECONDS
     ranked: list[tuple[int, float]] = []
     try:
@@ -68,6 +67,46 @@ def vector_rank(
             raise SemanticUnavailable()
         # No proxy environment, redirects or retries: scoped source text stays local.
         with httpx.Client(trust_env=False, follow_redirects=False) as client:
+            def get_identity() -> dict[str, str]:
+                remaining = deadline - monotonic()
+                if remaining <= 0:
+                    raise SemanticUnavailable("vector_timeout")
+                response = client.get(
+                    str(settings.RAG_WORKER_URL).rstrip("/") + "/health",
+                    headers={"Authorization": "Bearer " + token},
+                    timeout=httpx.Timeout(remaining, connect=min(2, remaining)),
+                )
+                response.raise_for_status()
+                body = response.json()
+                if not isinstance(body, dict) or body.get("status") != "ready":
+                    raise SemanticUnavailable("vector_identity_unavailable")
+                identity = validate_identity(body)
+                if monotonic() >= deadline:
+                    raise SemanticUnavailable("vector_timeout")
+                return identity
+
+            identity = get_identity()
+            cache_key = retrieval_cache.key_for(
+                namespace, engine, query, identifiers, texts, limit,
+                identity=identity["protocol_id"],
+            )
+            if deadline - monotonic() >= CACHE_MIN_BUDGET_SECONDS:
+                cached, status = retrieval_cache.get(cache_key, namespace)
+            else:
+                cached, status = None, "skipped_budget"
+            if monotonic() >= deadline:
+                raise SemanticUnavailable("vector_timeout")
+            if cache_info is not None:
+                cache_info["status"] = status
+            if cached is not None:
+                try:
+                    hits = validate_hits(cached, identifiers, limit)
+                except SemanticUnavailable:
+                    pass
+                else:
+                    if get_identity() != identity:
+                        raise SemanticUnavailable("vector_identity_changed")
+                    return hits
             for start in range(0, len(identifiers), MAX_VECTOR_CHUNKS):
                 remaining = deadline - monotonic()
                 if remaining <= 0:
@@ -80,6 +119,7 @@ def vector_rank(
                         "query": query,
                         "namespace": namespace,
                         "engine": engine,
+                        "expected_identity": identity,
                         "chunks": [
                             {"id": identifier, "text": text}
                             for identifier, text in zip(
@@ -91,10 +131,13 @@ def vector_rank(
                     headers={"Authorization": "Bearer " + token},
                     timeout=httpx.Timeout(remaining, connect=min(2, remaining)),
                 )
+                if response.status_code == 409:
+                    raise SemanticUnavailable("vector_identity_changed")
                 response.raise_for_status()
-                batch_ranked = validate_hits(
-                    response.json(), batch_ids, limit, apply_threshold=False
-                )
+                result = response.json()
+                if validate_identity(result) != identity:
+                    raise SemanticUnavailable("vector_identity_changed")
+                batch_ranked = validate_hits(result, batch_ids, limit, apply_threshold=False)
                 if monotonic() >= deadline:
                     raise SemanticUnavailable("vector_timeout")
                 ranked.extend((start + index, score) for index, score in batch_ranked)
@@ -107,7 +150,10 @@ def vector_rank(
     payload = {
         "hits": [{"id": identifiers[index], "score": score} for index, score in ranked]
     }
-    retrieval_cache.put(cache_key, payload)
+    if deadline - monotonic() >= CACHE_MIN_BUDGET_SECONDS:
+        retrieval_cache.put(cache_key, payload)
+    if monotonic() >= deadline:
+        raise SemanticUnavailable("vector_timeout")
     return validate_hits(payload, identifiers, limit)
 
 

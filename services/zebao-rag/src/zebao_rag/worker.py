@@ -23,6 +23,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
+from .identity import valid_identity
+
 MAX_BODY = 2 * 1024 * 1024
 MAX_EMBED_BODY = 2_200_000
 MAX_IMAGE_BYTES = 1_500_000
@@ -47,6 +49,7 @@ class RankRequest(BaseModel):
     limit: int = Field(default=20, ge=1, le=20)
     namespace: str = Field(default="local-experiment", pattern=r"^[a-zA-Z0-9_-]{1,40}$")
     engine: Literal["milvus", "chroma"] = "chroma"
+    expected_identity: dict[str, str] | None = None
 
     @model_validator(mode="after")
     def unique_ids(self) -> "RankRequest":
@@ -69,7 +72,7 @@ class Ranker:
         self.cache_size = cache_size
         self.cache: OrderedDict[str, list[float]] = OrderedDict()
 
-    def rank(self, request: RankRequest) -> list[dict]:
+    def rank(self, request: RankRequest, space_id: str | None = None) -> list[dict]:
         # The HTTP handler serializes rank() calls to bound GPU concurrency.
         vectors: list[list[float]] = []
         for start in range(0, len(request.chunks), 4):
@@ -106,6 +109,7 @@ class Ranker:
                 vectors,
                 query,
                 request.limit,
+                space_id=space_id,
             )
         name = "request-" + uuid.uuid4().hex
         collection = self.client.create_collection(
@@ -137,6 +141,7 @@ class EmbedRequest(BaseModel):
     text: str | None = Field(default=None, max_length=1000)
     image_base64: str | None = Field(default=None, max_length=MAX_EMBED_BODY)
     is_query: bool = True
+    expected_identity: dict[str, str] | None = None
 
     @model_validator(mode="after")
     def shape(self) -> "EmbedRequest":
@@ -192,8 +197,11 @@ def _image_bytes(encoded: str) -> bytes:
 
 
 def handler_type(
-    ranker: Ranker, token: str, embedder: Embedder | None = None
+    ranker: Ranker, token: str, embedder: Embedder | None = None,
+    identity: dict[str, str] | None = None,
 ) -> type[BaseHTTPRequestHandler]:
+    if identity is not None and not valid_identity(identity):
+        raise ValueError("invalid worker identity")
     inference = threading.Lock()
 
     class Handler(BaseHTTPRequestHandler):
@@ -230,7 +238,10 @@ def handler_type(
             if self.path != "/health":
                 self.reply(404, {"code": "not_found"})
                 return
-            self.reply(200, {"status": "ready", "max_chunks": MAX_CHUNKS})
+            if identity is None:
+                self.reply(503, {"code": "identity_unavailable"})
+                return
+            self.reply(200, {"status": "ready", "max_chunks": MAX_CHUNKS, "identity": identity})
 
         def do_POST(self) -> None:
             if not self.authenticated():
@@ -252,6 +263,9 @@ def handler_type(
             if self.path == "/embed" and embedder is None:
                 self.reply(503, {"code": "embedding_unavailable"})
                 return
+            if identity is None:
+                self.reply(503, {"code": "identity_unavailable"})
+                return
             if not inference.acquire(blocking=False):
                 self.reply(503, {"code": "busy"})
                 return
@@ -259,11 +273,17 @@ def handler_type(
                 body = self.rfile.read(size)
                 if self.path == "/embed":
                     request = EmbedRequest.model_validate_json(body)
+                    if request.expected_identity is not None and request.expected_identity != identity:
+                        self.reply(409, {"code": "identity_mismatch"})
+                        return
                     assert embedder is not None
-                    self.reply(200, {"vector": embedder.embed(request)})
+                    self.reply(200, {"vector": embedder.embed(request), "identity": identity})
                     return
                 ranked = RankRequest.model_validate_json(body)
-                self.reply(200, {"hits": ranker.rank(ranked)})
+                if ranked.expected_identity != identity:
+                    self.reply(409, {"code": "identity_mismatch"})
+                    return
+                self.reply(200, {"hits": ranker.rank(ranked, identity["space_id"]), "identity": identity})
             except ValidationError:
                 self.reply(422, {"code": "invalid_input"})
             except Exception as exc:
@@ -283,15 +303,15 @@ def main() -> None:
     token = os.environ.get("ZEBAO_RAG_WORKER_TOKEN", "")
     if len(token) < 32:
         parser.error("ZEBAO_RAG_WORKER_TOKEN must contain at least 32 characters")
-    from .embedder import encode_image_bytes, encode_texts, get_model
+    from .embedder import encode_image_bytes, encode_texts, get_verified_identity
 
     logging.basicConfig(level=logging.INFO)
     # Only advertise readiness after weights are loaded; no sample data is read.
-    get_model()
+    identity = get_verified_identity(TEXT_INSTRUCTION)
     server = ThreadingHTTPServer(
         ("127.0.0.1", args.port),
         handler_type(
-            Ranker(encode_texts), token, Embedder(encode_texts, encode_image_bytes)
+            Ranker(encode_texts), token, Embedder(encode_texts, encode_image_bytes), identity
         ),
     )
     server.daemon_threads = True

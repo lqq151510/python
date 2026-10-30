@@ -6,6 +6,10 @@ import os
 from functools import lru_cache
 
 
+class MilvusDimensionMismatch(Exception):
+    """The existing collection belongs to a different embedding dimension."""
+
+
 @lru_cache(maxsize=1)
 def client():
     from pymilvus import MilvusClient
@@ -15,7 +19,11 @@ def client():
     )
 
 
-def rank(namespace, identifiers, texts, vectors, query, limit):
+def rank(namespace, identifiers, texts, vectors, query, limit, *, space_id=None):
+    if not isinstance(space_id, str) or len(space_id) != 64 or any(
+        char not in "0123456789abcdef" for char in space_id
+    ):
+        raise ValueError("verified embedding identity required")
     connection = client()
     name = os.environ.get("ZEBAO_MILVUS_COLLECTION", "devassist_text_v1")
     dimension = len(vectors[0])
@@ -26,9 +34,8 @@ def rank(namespace, identifiers, texts, vectors, query, limit):
             field for field in schema["fields"] if field["name"] == "vector"
         )
         if int(vector_field["params"]["dim"]) != dimension:
-            # SQL owns the source text; only derived vectors are rebuilt here.
-            connection.drop_collection(name, timeout=15)
-            collection_exists = False
+            # Never delete a shared collection in response to a query.
+            raise MilvusDimensionMismatch("Milvus vector dimension mismatch")
     if not collection_exists:
         connection.create_collection(
             name,
@@ -41,7 +48,7 @@ def rank(namespace, identifiers, texts, vectors, query, limit):
             timeout=15,
         )
     keys = [
-        hashlib.sha256(f"{namespace}:{identifier}:{text}".encode()).hexdigest()
+        hashlib.sha256(json.dumps([space_id, namespace, identifier, text], ensure_ascii=False).encode()).hexdigest()
         for identifier, text in zip(identifiers, texts, strict=True)
     ]
     connection.upsert(

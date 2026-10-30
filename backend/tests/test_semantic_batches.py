@@ -64,10 +64,18 @@ def rpc(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> SimpleNamespace:
     def respond(request: httpx.Request) -> httpx.Response:
         assert request.url.host == "127.0.0.1"
         assert request.headers["Authorization"] == "Bearer " + token.read_text()
+        if request.method == "GET":
+            return harness.health()
         body = json.loads(request.content)
         body["timeout"] = request.extensions["timeout"]
         calls.append(body)
-        return harness.respond(body)
+        response = harness.respond(body)
+        if response.status_code == 200 and response.headers.get("content-type", "").startswith("application/json"):
+            payload = response.json()
+            if isinstance(payload, dict) and "hits" in payload and "identity" not in payload:
+                payload["identity"] = harness.identity.copy()
+                return httpx.Response(200, json=payload)
+        return response
 
     def make_client(**kwargs: Any) -> httpx.Client:
         assert kwargs == {"trust_env": False, "follow_redirects": False}
@@ -83,6 +91,8 @@ def rpc(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> SimpleNamespace:
         writes=writes,
         calls=calls,
         clock=clock,
+        identity={"space_id": "a" * 64, "protocol_id": "b" * 64, "generation": "c" * 32},
+        health=lambda: httpx.Response(200, json={"status": "ready", "identity": harness.identity.copy()}),
         respond=lambda _body: httpx.Response(200, json={"hits": []}),
     )
     return harness
@@ -217,6 +227,84 @@ def test_complete_cache_replays_and_all_candidates_affect_key(
     texts[-1] = "updated-last-batch"
     rpc.semantic.vector_rank("query", identifiers, texts, 2, "owner-a", "milvus")
     assert len(rpc.calls) == 4 and rpc.reads[-1][0] != rpc.reads[0][0]
+
+
+def test_cached_result_never_used_when_worker_identity_unavailable(rpc: SimpleNamespace) -> None:
+    assert rank(rpc) == []
+    rpc.health = lambda: httpx.Response(503)
+    with pytest.raises(rpc.semantic.SemanticUnavailable):
+        rank(rpc)
+    assert len(rpc.calls) == 2
+
+
+def test_old_worker_without_identity_is_rejected_before_cache_read(rpc: SimpleNamespace) -> None:
+    rpc.health = lambda: httpx.Response(200, json={"status": "ready"})
+    with pytest.raises(rpc.semantic.SemanticUnavailable) as caught:
+        rank(rpc)
+    assert caught.value.code == "vector_identity_unavailable"
+    assert not rpc.reads and not rpc.calls
+
+
+def test_changed_model_identity_misses_previous_cache(rpc: SimpleNamespace) -> None:
+    assert rank(rpc) == []
+    prior_key = rpc.reads[-1][0]
+    rpc.identity["space_id"] = "d" * 64
+    rpc.identity["protocol_id"] = "e" * 64
+    rpc.identity["generation"] = "f" * 32
+    assert rank(rpc) == []
+    assert rpc.reads[-1][0] != prior_key and len(rpc.calls) == 4
+
+
+def test_worker_restart_between_batches_discards_partial_results(rpc: SimpleNamespace) -> None:
+    def respond(body: dict[str, Any]) -> httpx.Response:
+        result_identity = rpc.identity.copy()
+        if body["chunks"][0]["id"] != "c-0":
+            result_identity["generation"] = "d" * 32
+        return httpx.Response(200, json={"hits": [], "identity": result_identity})
+
+    rpc.respond = respond
+    with pytest.raises(rpc.semantic.SemanticUnavailable) as caught:
+        rank(rpc)
+    assert caught.value.code == "vector_identity_changed" and not rpc.writes
+
+
+def test_worker_restart_during_cache_hit_is_rejected(rpc: SimpleNamespace) -> None:
+    assert rank(rpc) == []
+    checks = 0
+
+    def health() -> httpx.Response:
+        nonlocal checks
+        checks += 1
+        identity = rpc.identity.copy()
+        if checks > 1:
+            identity["generation"] = "d" * 32
+        return httpx.Response(200, json={"status": "ready", "identity": identity})
+
+    rpc.health = health
+    with pytest.raises(rpc.semantic.SemanticUnavailable) as caught:
+        rank(rpc)
+    assert caught.value.code == "vector_identity_changed"
+
+
+def test_short_remaining_budget_skips_redis_read_and_write(rpc: SimpleNamespace) -> None:
+    rpc.settings.RAG_WORKER_TIMEOUT_SECONDS = 1.9
+    info: dict[str, str] = {}
+    identifiers, texts = candidates(2)
+    assert rpc.semantic.vector_rank("query", identifiers, texts, 2, "owner-a", "milvus", info) == []
+    assert info["status"] == "skipped_budget"
+    assert not rpc.reads and not rpc.writes and len(rpc.calls) == 1
+
+
+def test_cache_read_over_deadline_never_returns_cached_result(rpc: SimpleNamespace, monkeypatch: pytest.MonkeyPatch) -> None:
+    def slow_get(_key: str, _namespace: str) -> tuple[dict[str, Any] | None, str]:
+        rpc.clock.now += rpc.settings.RAG_WORKER_TIMEOUT_SECONDS
+        return {"hits": [{"id": "c-0", "score": 0.9}]}, "hit"
+
+    monkeypatch.setattr(rpc.cache, "get", slow_get)
+    with pytest.raises(rpc.semantic.SemanticUnavailable) as caught:
+        rank(rpc)
+    assert caught.value.code == "vector_timeout"
+    assert not rpc.calls and not rpc.writes
 
 
 def test_cache_replay_applies_current_similarity_threshold(

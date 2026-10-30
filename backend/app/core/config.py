@@ -89,7 +89,7 @@ class Settings(BaseSettings):
     RAG_MIN_SIMILARITY: float = Field(default=0.3, ge=-1, le=1)
     RAG_VECTOR_STORE: Literal["milvus", "chroma"] = "milvus"
     RAG_CACHE_ENABLED: bool = False
-    # 换模型或加载 LoRA 适配器后必须换这个标识，否则缓存会复用旧模型的命中结果。
+    # 兼容旧配置；新版 vector_rank 使用 worker 协议指纹，此项不决定新版缓存键。
     RAG_EMBEDDING_IDENTITY: str = Field(
         default="qwen3-vl-text-v1", min_length=1, max_length=80
     )

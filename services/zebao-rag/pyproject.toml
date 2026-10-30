@@ -23,6 +23,9 @@ dependencies = [
 [project.scripts]
 zebao-rag = "zebao_rag:main"
 
+[dependency-groups]
+eval = ["sqlmodel>=0.0.46,<1.0.0"]
+
 [build-system]
 requires = ["uv_build>=0.12.8,<0.13.0"]
 build-backend = "uv_build"

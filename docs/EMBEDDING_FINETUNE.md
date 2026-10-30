@@ -1,5 +1,43 @@
 # 嵌入模型 LoRA 微调（Qwen3-VL-Embedding-2B）
 
+> 2026-10-30 协议更新：以下数字仍是历史实验，使用旧的无查询指令评估，
+> 不代表线上检索收益。本次已让评估脚本在查询端使用 worker 的文本检索指令，
+> 文档端不显式传入指令，但模型如配置默认 prompt，编码器仍可能自动应用；
+> 输出改为 `eval_report_online_protocol_v1.json`，保留旧结果。
+> 本次没有重新运行模型或训练；新协议的效果、完整候选集与真实线上表现仍待验证。
+>
+> **训练输入修正**：新训练复用 SentenceTransformer 的 prompt 解析、预处理及池化；
+> 查询使用 worker 的文本指令，文档使用模型默认 prompt。无法确认默认 prompt、
+> 设置训练最大长度或确认 LoRA 已接入前向路径时会停止；`train_meta.json` 记录
+> prompt 名称与摘要、训练长度
+> 和模型加载时的默认长度。训练默认 `--max-length=256`，可能与线上实际长度不同；
+> 元数据不证明线上长度已核验。训练使用 BF16、训练模式及 float32 归一化，与线上
+> 的模式/精度可能不同；上述修正不代表向量数值一致或实际检索效果已经验证。
+> 历史 adapter 可能由旧协议训练，评估时的训练数据来源校验不等于训练编码协议校验，
+> 不能将其标为训练协议已对齐；本次没有重新训练或覆盖历史产物。
+
+> **评估快照与候选范围更新**：留出问题仍只来自验证来源，但检索候选改为整个
+> `corpus.jsonl`（包括训练文档片段），输出 `eval_report_full_corpus_v2.json`，
+> 不覆盖旧报告。报告记录语料、问题、统计、解析排序代码和样例原文的 SHA-256、
+> 候选数与留出问题数，并统计跨训练/验证来源的完全相同片段数。完全相同检查不等于
+> 近似重复或语义泄漏检查。新版评估将先解析固定的本地模型目录，加载前、加载后
+> 和评估结束分别校验模型与 adapter 的内容摘要。缓存目录名中的 revision 只是标签，
+> 非 Hugging Face 缓存路径记为 `unknown`；摘要也不能证明进程内权重或外部引用的身份。
+> 跨次比较还必须核对模型摘要、依赖、编码协议与数据快照，不能仅凭指标差异声称提升。
+> 这次只实现和测试评估流程，**没有重新运行真实模型，也没有新的效果数字**。
+> 项目文档验证集使用 `corpus.py` 预分块（500 字符窗、80 重叠）；线上后端
+> `knowledge.split_document` 使用 1000 字符窗、150 重叠。查询指令对齐并不代表
+> 分块或端到端流程一致，验证集结果不能直接作为线上效果。
+> 验证集还只编码预分块的 `row.text`，线上后端则拼接文件名、标题和片段正文。
+> 评估报告区分文档 prompt 的显式参数与模型默认值，并记录默认 prompt 名称和摘要。
+>
+> 另有一次独立执行的本机离线基座冒烟：仓库自带 30 题诊断集与 24 题独立标注问题
+> 使用同一 5 文档合成语料，报告位于本机 `.local/rag-eval-runs/`。这次没有加载
+> adapter、没有重训或调用生成模型；其内联运行脚本未作为文件保存，报告的源码、
+> 输入与模型摘要不能替代完整可执行 harness。结果不能与旧 LoRA 数字直接比较。
+> 现已提供可执行的 `eval_examples.py` 用于单独复验这两套仓库合成问题，不能将
+> 用旧内联脚本得到的报告误称为由该 runner 生成。
+
 DevAssist 的向量检索走本地 RAG worker（`services/zebao-rag`），查询和文档都用
 `Qwen/Qwen3-VL-Embedding-2B` 编码成 2048 维向量。本文记录这个模型的 LoRA
 微调链路：语料怎么来、问题怎么生成、怎么训练、怎么证明有用（或没用）。
@@ -29,6 +67,58 @@ DevAssist 的向量检索走本地 RAG worker（`services/zebao-rag`），查询
 样本量小（22 个有答案问题 / 45 个验证问题），这些数字是趋势证据，不是生产结论。
 
 ## 二、数据从哪来
+
+### 新实验如何固定输入
+
+为避免覆盖历史实验，请为新语料指定全新目录；若目录已有 `corpus.jsonl`、
+`corpus_stats.json` 或 `queries.jsonl`，生成脚本会拒绝覆盖。新问题会记录对应片段
+的 SHA-256；如果片段内容后来变化，续跑生成、训练和评估都会在调用模型前拒绝该问题。
+语料本身也会按快照摘要检查，重复/缺失 ID 和来源不匹配会被拒绝。
+
+```bash
+cd services/zebao-rag
+.venv/bin/python scripts/finetune/corpus.py --out-dir /绝对路径/新的实验目录
+# 以下生成步骤会调用本机 Ollama，按需单独运行并注意耗时和模型使用：
+.venv/bin/python scripts/finetune/generate_queries.py --work-dir /绝对路径/新的实验目录 --split train
+.venv/bin/python scripts/finetune/generate_queries.py --work-dir /绝对路径/新的实验目录 --split val
+```
+
+旧实验缺少片段内容摘要；默认拒绝把它当成可验证快照。确需复查旧实验时，可为
+`train_lora.py` 或 `eval_retrieval.py` 显式添加
+`--allow-legacy-queries`；输出中的 `question_provenance` 会标记为
+`legacy_unverified`，不能据此证明问题与当时的片段完全一致。旧文件不会被自动改写。
+问题生成不支持向未验证的历史问题文件追加，请先创建新的实验目录。
+同一冻结快照、相同模型/adapter 和编码协议下重复运行，才适合比较基线与候选。
+验证来源、片段或问题为空时默认拒绝评估；如只需诊断集，可以显式使用
+`--allow-empty-heldout`，报告将标记 `heldout_evaluable=false`，不能宣称留出集通过。
+新训练会记录训练问题与片段组成的摘要；评估时会检查 adapter 中的训练摘要是否与
+当前快照一致。旧 adapter 缺少训练摘要时，默认拒绝评估；如只想复查历史实验，
+须另加 `--allow-unverified-adapter`，报告会标记 `legacy_unverified`，不能把它当成
+已验证的训练来源。已存在 adapter 目录不会被覆盖，可用训练参数 `--adapter-output`
+指定新目录；已存在的评估报告也不会覆盖，可用评估参数 `--output` 指定新文件。
+新训练元数据会记录随机种子、最大长度、最大步数及依赖版本；训练入口尚未验证实际
+基座权重身份，元数据明确标记 `model_artifact_identity_verified=false`，不能据此
+宣称训练完整可复现。
+评估模型解析现在默认只使用本地模型目录或 Hugging Face 缓存；只有显式添加
+`--allow-model-download` 才允许下载缺失的快照。这是运行行为的变更；本次未因该
+选项下载模型，也没有重训或覆盖已有评估报告。
+身份检查会在加载前、加载后及评估结束多次读取整个模型目录，使用 adapter 时还会在
+加载 adapter 后复核；大模型可能明显增加磁盘读取量和耗时，摘要不能替代权重签名。
+
+仅评估仓库的两套合成问题、且不加载 adapter 或训练资料时，可运行：
+
+```bash
+cd services/zebao-rag
+.venv/bin/python scripts/finetune/eval_examples.py \
+  --model /绝对路径/已存在的本地模型快照 \
+  --output /绝对路径/此前不存在的报告.json
+```
+
+该 runner 默认禁用 Python socket/DNS 与 Hugging Face 联网，输出路径必须全新；
+会运行 30 题诊断和 24 题留出问题，两个问题集共用同一合成文档库。它不会调用
+生成模型，因此检索负例不代表生成错误或拒答结果。MPS 与磁盘读取可能占用大量
+本机资源，运行前应确认其他任务不会与之竞争；Python 层禁止联网并非操作系统级
+网络沙箱。
 
 项目里没有现成的“问题 → 片段”检索对。链路是反向构造的：
 
@@ -73,6 +163,20 @@ env -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY \
 
 ## 四、怎么证明有效
 
+评估脚本复用后端分块与排序代码，需要单独安装 RAG 项目的 `eval` 依赖组。
+建议从 DevAssist 根目录创建独立评估环境，避免同步操作移除已有服务环境中的其他包：
+
+```bash
+UV_PROJECT_ENVIRONMENT="$PWD/.local/rag-eval-venv" \
+  uv sync --project services/zebao-rag --frozen --group eval --python 3.12
+```
+
+这是完整的独立 Python 环境，首次安装可能需要下载较大的依赖包；安装本身不下载模型权重。
+从 `backend/` 运行评估时，将下方命令中的
+`../services/zebao-rag/.venv/bin/python` 换成 `../.local/rag-eval-venv/bin/python`。
+普通 worker 的默认依赖不包含 `eval` 组。已有服务环境如需保留额外包，
+不要直接用同步命令覆盖它；本机已通过非破坏性的离线安装补齐了本次锁定版本。
+
 `scripts/finetune/eval_retrieval.py` 在**同一台机器、同一批片段**上跑三次排序：
 
 1. BM25（项目原有基线，`app.knowledge.rank_chunks`）；
@@ -90,7 +194,8 @@ env -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY \
   ../services/zebao-rag/.venv/bin/python ../services/zebao-rag/scripts/finetune/eval_retrieval.py
 ```
 
-产物：`services/zebao-rag/.local/finetune/eval_report.json`（含逐条失败样例）。
+产物：实验目录中的 `eval_report_full_corpus_v2.json`（含逐条失败样例与输入摘要）；
+路径与历史 `eval_report.json`、`eval_report_online_protocol_v1.json` 分开。
 
 ## 五、接到项目里怎么用
 
@@ -112,13 +217,13 @@ devassist 这条链路上还有几个必须一起改的开关：
 ```bash
 # 后端（devassist/backend）
 RAG_WORKER_ENABLED=true      # 默认 false，不开就只有 BM25，向量检索直接退化成关键词
-RAG_VECTOR_STORE=chroma      # worker 默认引擎；用 Milvus 时要先把四件套起起来
-RAG_EMBEDDING_IDENTITY=qwen3-vl-text-v1+lora-r8   # 参与 Redis 检索缓存键
+RAG_VECTOR_STORE=chroma      # 可选 Chroma；后端默认 Milvus
 ```
 
-`RAG_EMBEDDING_IDENTITY` 是这一轮补的：缓存键原本写死 `qwen3-vl-text-v1`，
-微调前后会互相复用命中结果（TTL 180 秒），做基线/微调对比时会拿到假数据。现在模型标识由
-配置决定，换模型或换适配器时必须同步改。
+新版 worker 自动根据模型与 adapter 内容、编码实现和依赖计算协议指纹；后端在读取
+Redis 缓存前验证 worker 身份，并用该指纹区分缓存键。`RAG_EMBEDDING_IDENTITY`
+保留以兼容旧配置，但**不决定新版 `vector_rank` 缓存键**。旧 worker 缺少身份时不会复用
+旧缓存，会返回向量服务不可用；混合检索按已有规则降级。
 
 另外 devassist 的文档检索是**请求时现算向量**（worker `/rank`），没有持久化向量
 索引，所以这里没有「重建索引」这一步；要重建的是 `services/zebao-rag` 自己的

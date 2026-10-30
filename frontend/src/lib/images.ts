@@ -106,6 +106,20 @@ export async function deleteImage(id: string) {
   })
 }
 
+export async function reembedImage(id: string) {
+  const response = await client.post<
+    { 200: { message: string } },
+    unknown,
+    true
+  >({
+    url: `/api/v1/images/${encodeURIComponent(id)}/reembed`,
+    security: [...security],
+    timeout: 35_000,
+    throwOnError: true,
+  })
+  return response.data
+}
+
 export function describeImageError(error: unknown): string {
   if (isAxiosError(error)) {
     if (!error.response) return "无法连接服务，请确认后端已启动。"
@@ -115,4 +129,11 @@ export function describeImageError(error: unknown): string {
     if (error.response.status === 422) return "图片或检索内容不符合要求。"
   }
   return "操作失败，请稍后重试。"
+}
+
+export function describeReembedError(error: unknown): string {
+  if (isAxiosError(error) && !error.response) {
+    return "重建请求结果暂不可确认，请刷新后检查，再决定是否重试。原图未被修改。"
+  }
+  return describeImageError(error)
 }

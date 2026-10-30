@@ -94,6 +94,17 @@ def read_image_file(
     return Response(payload, media_type=asset.media_type)
 
 
+@router.post("/{image_id}/reembed")
+def reembed_image(
+    session: SessionDep, current_user: CurrentUser, image_id: uuid.UUID
+) -> dict[str, str]:
+    try:
+        image_library.reembed_image(session, current_user.id, image_id)
+    except ImageError as exc:
+        raise _http_error(exc) from None
+    return {"message": "图片检索向量已更新。"}
+
+
 @router.delete("/{image_id}")
 def delete_image(
     session: SessionDep, current_user: CurrentUser, image_id: uuid.UUID
