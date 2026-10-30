@@ -34,6 +34,7 @@ import {
 import { LoadingButton } from "@/components/ui/loading-button"
 import useAuth from "@/hooks/useAuth"
 import { describeChatError, sendChatMessage } from "@/lib/chat"
+import { createRequestId } from "@/lib/ids"
 import {
   describeKnowledgeError,
   listDocuments,
@@ -147,7 +148,7 @@ function Chat() {
       !pendingRequest.current ||
       pendingRequest.current.signature !== signature
     ) {
-      pendingRequest.current = { signature, key: crypto.randomUUID() }
+      pendingRequest.current = { signature, key: createRequestId() }
     }
     try {
       await mutation.mutateAsync({

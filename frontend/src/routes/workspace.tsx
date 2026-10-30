@@ -13,6 +13,7 @@ import { WorkspaceHeader } from "@/components/Workspace/WorkspaceHeader"
 import { isLoggedIn } from "@/hooks/useAuth"
 import { describeChatError, sendChatMessage } from "@/lib/chat"
 import { readCodeFile } from "@/lib/code"
+import { createRequestId } from "@/lib/ids"
 import { fetchImageObjectUrl } from "@/lib/images"
 import {
   type DocumentDetail,
@@ -386,7 +387,7 @@ function WorkspacePage() {
       return
     }
     if (askLock.current) return
-    const turnId = crypto.randomUUID()
+    const turnId = createRequestId()
     const docIds = [
       ...new Set(
         context
