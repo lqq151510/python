@@ -96,9 +96,31 @@ test.use({ storageState: { cookies: [], origins: [] } })
 
 test.describe("authenticated chat UI with simulated responses", () => {
   test.beforeEach(async ({ page }) => {
-    await page.route("**/api/v1/documents", (route) =>
-      route.fulfill({ json: { data: [], count: 0 } }),
-    )
+    // Both the app shell and post-login workspace load these account sources.
+    // Mock all of them so synthetic tokens cannot reach the CI backend and
+    // trigger unrelated 401 logout redirects while an old request is pending.
+    await page.route("**/api/v1/{documents,notes,images}", (route) => {
+      if (route.request().method() !== "GET") return route.fallback()
+      return route.fulfill({ json: { data: [], count: 0 } })
+    })
+    await page.route("**/api/v1/tasks", (route) => {
+      if (route.request().method() !== "GET") return route.fallback()
+      return route.fulfill({ json: { data: [], count: 0, open_count: 0 } })
+    })
+    await page.route("**/api/v1/code/config", (route) => {
+      if (route.request().method() !== "GET") return route.fallback()
+      return route.fulfill({
+        json: {
+          api_format: "openai_chat_completions",
+          model: "ui-test",
+          configured: false,
+        },
+      })
+    })
+    await page.route("**/api/v1/code/workspace", (route) => {
+      if (route.request().method() !== "GET") return route.fallback()
+      return route.fulfill({ json: { files: [], total_bytes: 0 } })
+    })
     await page.route("**/api/v1/chat/history**", (route) =>
       route.fulfill({ json: { data: [], count: 0 } }),
     )
