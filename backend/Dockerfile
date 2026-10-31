@@ -4,10 +4,12 @@ WORKDIR /app
 
 COPY package.json bun.lock /app/
 COPY frontend/package.json /app/frontend/
+COPY packages/react-email/package.json /app/packages/react-email/
+
+RUN --mount=type=cache,target=/root/.bun/install/cache \
+    bun install --frozen-lockfile --filter frontend --network-concurrency 16
 
 WORKDIR /app/frontend
-
-RUN bun install
 
 COPY ./frontend /app/frontend
 
@@ -37,6 +39,9 @@ WORKDIR /app/
 # Place executables in the environment at the front of the path
 # Ref: https://docs.astral.sh/uv/guides/integration/docker/#using-the-environment
 ENV PATH="/app/.venv/bin:$PATH"
+
+# The workspace member must exist when uv resolves --package app.
+COPY ./backend/pyproject.toml /app/backend/pyproject.toml
 
 # Install dependencies
 # Ref: https://docs.astral.sh/uv/guides/integration/docker/#intermediate-layers

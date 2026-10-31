@@ -2,6 +2,7 @@
 **/__pycache__
 **/.venv
 backend/htmlcov
+backend/app/frontend
 frontend/blob-report
 frontend/dist
 frontend/node_modules

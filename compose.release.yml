@@ -1,0 +1,90 @@
+# Standalone local release: always pass -f explicitly, never merge the dev override.
+x-app: &app
+  image: ${COMPOSE_PROJECT_NAME:-devassist-release}:${RELEASE_TAG:-local}
+  build:
+    context: .
+    dockerfile: backend/Dockerfile
+    args:
+      VITE_API_URL: ""
+  environment:
+    PROJECT_NAME: ${PROJECT_NAME:-DevAssist}
+    SECRET_KEY: ${SECRET_KEY:?Set SECRET_KEY in the explicit release env file}
+    FIRST_SUPERUSER: ${FIRST_SUPERUSER:?Set FIRST_SUPERUSER in the explicit release env file}
+    FIRST_SUPERUSER_PASSWORD: ${FIRST_SUPERUSER_PASSWORD:?Set FIRST_SUPERUSER_PASSWORD in the explicit release env file}
+    DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:?Set a URL-safe POSTGRES_PASSWORD}@db:5432/app
+    FRONTEND_HOST: http://127.0.0.1:${RELEASE_PORT:-8088}
+    DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+    DEEPSEEK_BASE_URL: ${DEEPSEEK_BASE_URL:-https://api.deepseek.com}
+    DEEPSEEK_MODEL: ${DEEPSEEK_MODEL:-deepseek-flash}
+    CHAT_TOTAL_TIMEOUT_SECONDS: ${CHAT_TOTAL_TIMEOUT_SECONDS:-30}
+    CHAT_CONNECT_TIMEOUT_SECONDS: ${CHAT_CONNECT_TIMEOUT_SECONDS:-5}
+    CHAT_MAX_TOKENS: ${CHAT_MAX_TOKENS:-1024}
+    CHAT_DOCUMENT_MODEL: ${CHAT_DOCUMENT_MODEL:-}
+    CHAT_DOCUMENT_REASONING_EFFORT: ${CHAT_DOCUMENT_REASONING_EFFORT:-}
+    CHAT_VALIDATE_DOCUMENT_EVIDENCE: ${CHAT_VALIDATE_DOCUMENT_EVIDENCE:-false}
+    CHAT_IDEMPOTENCY_CLAIMS_ENABLED: ${CHAT_IDEMPOTENCY_CLAIMS_ENABLED:-false}
+    CODE_API_FORMAT: ${CODE_API_FORMAT:-openai_chat_completions}
+    CODE_API_KEY: ${CODE_API_KEY:-}
+    CODE_BASE_URL: ${CODE_BASE_URL:-}
+    CODE_MODEL: ${CODE_MODEL:-}
+    CODE_MAX_OUTPUT_TOKENS: ${CODE_MAX_OUTPUT_TOKENS:-4096}
+    CODE_TIMEOUT_SECONDS: ${CODE_TIMEOUT_SECONDS:-60}
+    CODE_WORKSPACE_DIR: /var/lib/devassist/code-workspaces
+    # Optional services are outside this small, self-contained release stack.
+    AIGC_ENABLED: "false"
+    RAG_WORKER_ENABLED: "false"
+    RAG_CACHE_ENABLED: "false"
+    MYSQL_DATABASE_URL: ""
+    SENTRY_DSN: ""
+    SMTP_HOST: ${SMTP_HOST:-}
+    SMTP_PORT: ${SMTP_PORT:-587}
+    SMTP_TLS: ${SMTP_TLS:-true}
+    SMTP_SSL: ${SMTP_SSL:-false}
+    SMTP_USER: ${SMTP_USER:-}
+    SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+    EMAILS_FROM_EMAIL: ${EMAILS_FROM_EMAIL:-}
+  volumes:
+    - code-workspaces-data:/var/lib/devassist/code-workspaces
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set a URL-safe POSTGRES_PASSWORD}
+      POSTGRES_DB: app
+    volumes:
+      - app-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d app"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+
+  prestart:
+    <<: *app
+    profiles: ["tools"]
+    command: ["bash", "scripts/prestart.sh"]
+    depends_on:
+      db:
+        condition: service_healthy
+
+  backend:
+    <<: *app
+    restart: unless-stopped
+    command: ["fastapi", "run", "--host", "0.0.0.0", "--workers", "1"]
+    ports:
+      - "127.0.0.1:${RELEASE_PORT:-8088}:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/v1/utils/health-check/', timeout=3).read()"]
+      interval: 3s
+      timeout: 5s
+      retries: 30
+      start_period: 10s
+
+volumes:
+  app-db-data:
+  code-workspaces-data:
