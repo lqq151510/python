@@ -53,6 +53,7 @@ import "@/styles/workspace.css"
 
 export const Route = createFileRoute("/workspace")({
   component: WorkspacePage,
+  head: () => ({ meta: [{ title: "一体化工作台 - DevAssist" }] }),
   beforeLoad: async () => {
     if (!isLoggedIn()) {
       throw redirect({ to: "/login" })
@@ -141,9 +142,7 @@ function WorkspacePage() {
   if (notesQuery.isError) failedSources.push("note")
   if (imagesQuery.isError) failedSources.push("image")
   if (codeQueryResult.isError) failedSources.push("code")
-  const datasetPending =
-    sourceQueries.every((source) => !source.data) &&
-    sourceQueries.some((source) => source.isPending)
+  const datasetPending = sourceQueries.some((source) => source.isPending)
   const dataset = buildDataset({
     documents: docsQuery.data?.data ?? [],
     notes: notesQuery.data?.data ?? [],
@@ -736,6 +735,7 @@ function WorkspacePage() {
         pane={pane}
         onPaneChange={setPane}
         suggestOpen={suggestOpen}
+        onSuggestOpenChange={setSuggestOpen}
         suggestions={[
           ...new Map(rows.map((row) => [row.item.id, row.item])).values(),
         ].slice(0, 5)}
@@ -795,6 +795,13 @@ function WorkspacePage() {
                     !docSearch.data)))
             }
             warning={semanticWarning}
+            emptyLibrary={
+              !hasQuery &&
+              sourceQueries.every((source) => source.isSuccess) &&
+              items.length === 0
+            }
+            unavailable={failedSources.length > 0}
+            onNewNote={() => setNoteOpen(true)}
             activeId={activeId}
             onSelect={(id) => {
               const item =

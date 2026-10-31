@@ -1,3 +1,4 @@
+import { Link } from "@tanstack/react-router"
 import {
   Code2,
   FileText,
@@ -90,6 +91,9 @@ export function SourcesPanel({
       </section>
 
       <section>
+        <Link to="/knowledge" className="zm-btn zm-btn--ghost">
+          管理知识库
+        </Link>
         <h2 className="zm-sources__title">说明</h2>
         <p className="zm-sources__empty">
           资料全部来自你自己的知识库；速记保存到「学习笔记」，代码文件来自账号隔离沙箱。

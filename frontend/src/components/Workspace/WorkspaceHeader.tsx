@@ -21,6 +21,7 @@ export function WorkspaceHeader({
   pane,
   onPaneChange,
   suggestOpen,
+  onSuggestOpenChange,
 }: {
   query: string
   onQueryChange: (value: string) => void
@@ -39,6 +40,7 @@ export function WorkspaceHeader({
   pane: "knowledge" | "code"
   onPaneChange: (pane: "knowledge" | "code") => void
   suggestOpen: boolean
+  onSuggestOpenChange: (open: boolean) => void
 }) {
   const scopes: Array<{ key: WsScope; label: string }> = [
     { key: "all", label: "全部" },
@@ -83,6 +85,16 @@ export function WorkspaceHeader({
             spellCheck={false}
             placeholder="检索文档、笔记与代码"
             value={query}
+            onFocus={() => onSuggestOpenChange(true)}
+            onBlur={(event) => {
+              if (
+                !event.currentTarget.parentElement?.contains(
+                  event.relatedTarget,
+                )
+              ) {
+                onSuggestOpenChange(false)
+              }
+            }}
             onChange={(event) => onQueryChange(event.target.value)}
             onKeyDown={(event) => {
               if (event.key === "Escape") onQueryChange("")
@@ -93,6 +105,15 @@ export function WorkspaceHeader({
               className="zm-search__clear"
               type="button"
               onClick={() => onQueryChange("")}
+              onBlur={(event) => {
+                if (
+                  !event.currentTarget.parentElement?.contains(
+                    event.relatedTarget,
+                  )
+                ) {
+                  onSuggestOpenChange(false)
+                }
+              }}
             >
               <X size={14} aria-hidden="true" />
               <span className="zm-visually-hidden">清除检索词</span>
@@ -107,6 +128,15 @@ export function WorkspaceHeader({
                     type="button"
                     className="zm-suggest__item"
                     onClick={() => onPickSuggestion(item)}
+                    onBlur={(event) => {
+                      if (
+                        !event.currentTarget
+                          .closest(".zm-search")
+                          ?.contains(event.relatedTarget)
+                      ) {
+                        onSuggestOpenChange(false)
+                      }
+                    }}
                   >
                     <span className="zm-suggest__title">{item.title}</span>
                     <span className="zm-suggest__src">

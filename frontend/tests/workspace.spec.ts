@@ -897,7 +897,7 @@ test("认证回调前会话切换时不会把原问题发给新账号", async ({
       }
       return original.call(this, key)
     }
-    const button = document.querySelector<HTMLButtonElement>(
+    const button = window.document.querySelector<HTMLButtonElement>(
       ".zm-ask__row button",
     )
     button?.click()
@@ -980,4 +980,201 @@ test("打开代码文件后定位命中，并能反查相关笔记", async ({ pa
 
   await expect(page.locator("#zm-search-input")).toHaveValue("search")
   await expect(page.locator(".zm-toast")).toContainText("代码符号")
+})
+
+test("首次空资料给出上传和速记入口，搜索无命中保留检索提示", async ({
+  page,
+}) => {
+  await page.route(
+    /\/api\/v1\/(documents|notes|images|code\/workspace)(\?.*)?$/,
+    (route) =>
+      route.fulfill({
+        json: route.request().url().includes("/code/workspace")
+          ? { files: [], total_bytes: 0 }
+          : { data: [], count: 0 },
+      }),
+  )
+  await page.route("**/api/v1/documents/search", (route) =>
+    route.fulfill({ json: { query: "不存在", method: "bm25", sources: [] } }),
+  )
+  await page.goto("/workspace")
+  await expect(page).toHaveTitle("一体化工作台 - DevAssist")
+  await expect(
+    page.getByRole("heading", { name: "先添加一份资料" }),
+  ).toBeVisible()
+  await expect(page.getByRole("link", { name: "上传资料" })).toHaveAttribute(
+    "href",
+    "/knowledge",
+  )
+  await page
+    .locator(".zm-empty")
+    .getByRole("button", { name: "新建速记" })
+    .click()
+  await expect(page.getByRole("dialog")).toBeVisible()
+  await page.getByRole("dialog").getByRole("button", { name: "取消" }).click()
+  await page.getByRole("searchbox").fill("不存在")
+  await expect(
+    page.getByRole("heading", { name: "没有匹配的资料" }),
+  ).toBeVisible()
+  await expect(
+    page.getByRole("heading", { name: "先添加一份资料" }),
+  ).toHaveCount(0)
+  await page.getByRole("searchbox").fill("")
+  await page.route("**/api/v1/users/me", (route) =>
+    route.fulfill({
+      json: {
+        id: "55555555-5555-4555-8555-555555555555",
+        email: "demo@example.com",
+        full_name: "演示用户",
+        is_active: true,
+        is_superuser: false,
+      },
+    }),
+  )
+  await page.getByRole("link", { name: "上传资料" }).click()
+  await expect(page).toHaveURL(/\/knowledge$/)
+})
+
+test("部分资料仍加载时不误报首次空库", async ({ page }) => {
+  let release: () => void = () => {}
+  const pending = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  await page.route(
+    /\/api\/v1\/(documents|notes|images|code\/workspace)(\?.*)?$/,
+    async (route) => {
+      const code = route.request().url().includes("/code/workspace")
+      if (code) await pending
+      await route.fulfill({
+        json: code ? { files: [], total_bytes: 0 } : { data: [], count: 0 },
+      })
+    },
+  )
+  await page.goto("/workspace")
+  await expect(page.locator(".zm-results__list")).toHaveAttribute(
+    "aria-busy",
+    "true",
+  )
+  await expect(
+    page.getByRole("heading", { name: "先添加一份资料" }),
+  ).toHaveCount(0)
+  release()
+  await expect(
+    page.getByRole("heading", { name: "先添加一份资料" }),
+  ).toBeVisible()
+})
+
+test("资料加载失败时保留重试，不误报首次空库", async ({ page }) => {
+  await page.route(
+    /\/api\/v1\/(documents|notes|images|code\/workspace)(\?.*)?$/,
+    (route) =>
+      route.request().url().includes("/code/workspace")
+        ? route.fulfill({ status: 503, json: { detail: "unavailable" } })
+        : route.fulfill({ json: { data: [], count: 0 } }),
+  )
+  await page.goto("/workspace")
+  await expect(page.getByRole("button", { name: "重试加载" })).toBeVisible()
+  await expect(
+    page.getByRole("heading", { name: "部分资料暂时无法读取" }),
+  ).toBeVisible()
+  await expect(
+    page.getByRole("heading", { name: "先添加一份资料" }),
+  ).toHaveCount(0)
+})
+
+for (const width of [375, 768]) {
+  test(`工作台在 ${width}px 可检索、切换面板并关闭知识源`, async ({
+    page,
+  }, testInfo) => {
+    await page.setViewportSize({ width, height: 900 })
+    await page.goto("/workspace")
+    await expect(page.locator(".zm-result").first()).toBeVisible()
+    const bounds = await page
+      .locator(".zm-topbar button, .zm-topbar a, .zm-search")
+      .evaluateAll((elements) =>
+        elements
+          .filter((element) => element.getBoundingClientRect().width > 0)
+          .map((element) => ({
+            label: element.textContent?.trim(),
+            left: element.getBoundingClientRect().left,
+            right: element.getBoundingClientRect().right,
+          })),
+      )
+    expect(
+      bounds.filter((bound) => bound.left < 0 || bound.right > width),
+    ).toEqual([])
+    expect(
+      await page.evaluate(() => window.document.documentElement.scrollWidth),
+    ).toBeLessThanOrEqual(width)
+    await page.getByRole("searchbox").fill("召回")
+    await expect(page.locator(".zm-result").first()).toContainText(
+      "rag-eval.md",
+    )
+    await page
+      .locator(".zm-seg")
+      .getByRole("button", { name: "代码", exact: true })
+      .click()
+    await expect(page.getByRole("region", { name: "代码工作台" })).toBeVisible()
+    await expect(page.getByRole("list", { name: "检索建议" })).toHaveCount(0)
+    await page
+      .locator(".zm-seg")
+      .getByRole("button", { name: "知识", exact: true })
+      .click()
+    await page.getByRole("button", { name: "打开知识源与过滤" }).click()
+    await expect(page.getByRole("link", { name: "管理知识库" })).toBeVisible()
+    const header = await page.locator(".zm-topbar").boundingBox()
+    const drawer = await page.locator(".zm-sources").boundingBox()
+    expect(drawer?.y).toBeGreaterThanOrEqual(
+      (header?.y ?? 0) + (header?.height ?? 0),
+    )
+    await page.getByRole("button", { name: "打开知识源与过滤" }).click()
+    await expect(
+      page.getByRole("complementary", { name: "知识源与过滤" }),
+    ).not.toBeVisible()
+    await page.screenshot({
+      path: testInfo.outputPath(`workspace-${width}.png`),
+      fullPage: true,
+    })
+  })
+}
+
+test("有资料时切换空类型不显示首次引导", async ({ page }) => {
+  await page.goto("/workspace")
+  await expect(page.locator(".zm-result").first()).toBeVisible()
+  await page
+    .locator(".zm-scope")
+    .getByRole("button", { name: "图片 0" })
+    .click()
+  await expect(
+    page.getByRole("heading", { name: "没有匹配的资料" }),
+  ).toBeVisible()
+  await expect(
+    page.getByRole("heading", { name: "先添加一份资料" }),
+  ).toHaveCount(0)
+})
+
+test("检索框键盘切出后收起建议，清除按钮失焦也不会残留浮层", async ({
+  page,
+}) => {
+  await page.goto("/workspace")
+  const search = page.getByRole("searchbox")
+  await search.fill("召回")
+  const suggestions = page.getByRole("list", { name: "检索建议" })
+  await expect(suggestions).toBeVisible()
+  await search.press("Tab")
+  const clear = page.getByRole("button", { name: "清除检索词" })
+  await expect(clear).toBeFocused()
+  await page.keyboard.press("Tab")
+  await expect(suggestions.getByRole("button").first()).toBeFocused()
+  await page.keyboard.press("Tab")
+  await expect(suggestions).toHaveCount(0)
+  await search.focus()
+  await expect(suggestions).toBeVisible()
+  await clear.focus()
+  await page
+    .locator(".zm-topbar")
+    .getByRole("button", { name: "新建速记" })
+    .click()
+  await expect(suggestions).toHaveCount(0)
+  await expect(page.getByRole("dialog")).toBeVisible()
 })

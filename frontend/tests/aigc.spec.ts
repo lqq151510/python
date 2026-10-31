@@ -13,7 +13,7 @@ async function login(page: Page) {
   await page.goto("/login")
   await page.getByTestId("email-input").fill(EMAIL)
   await page.getByTestId("password-input").fill(PASSWORD)
-  await page.getByRole("button", { name: "Log In" }).click()
+  await page.getByRole("button", { name: "登录" }).click()
   await page.waitForURL("/workspace", { timeout: 20_000 })
 }
 

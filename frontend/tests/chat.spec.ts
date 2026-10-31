@@ -83,8 +83,8 @@ async function mockSecondAccountLogin(page: Page) {
 async function loginAsSecondAccount(page: Page) {
   await expect(page).toHaveURL(/\/login$/)
   await page.getByTestId("email-input").fill("b@example.com")
-  await page.getByPlaceholder("Password", { exact: true }).fill("test-password")
-  await page.getByRole("button", { name: "Log In", exact: true }).click()
+  await page.getByTestId("password-input").fill("test-password")
+  await page.getByRole("button", { name: "登录", exact: true }).click()
   // 登录落在工作台，工作台没有侧栏；用页面内的链接回到问答页，避免整页导航把
   // 老账号还在飞行的请求直接 abort 掉（这几条用例正是要验证它们后来的返回）。
   await page.waitForURL("/workspace")
@@ -632,10 +632,8 @@ test.describe("authenticated chat UI with simulated responses", () => {
     await page.getByRole("button", { name: "退出登录", exact: true }).click()
     await expect(page).toHaveURL(/\/login$/)
     await page.getByTestId("email-input").fill("b@example.com")
-    await page
-      .getByPlaceholder("Password", { exact: true })
-      .fill("test-password")
-    await page.getByRole("button", { name: "Log In", exact: true }).click()
+    await page.getByTestId("password-input").fill("test-password")
+    await page.getByRole("button", { name: "登录", exact: true }).click()
     await expect.poll(() => newIdentityRequests).toBe(1)
     await expect(page).toHaveURL(/\/login$/)
     await expect(page.getByText("账号 A", { exact: true })).toHaveCount(0)

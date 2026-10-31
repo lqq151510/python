@@ -1,3 +1,4 @@
+import { Link } from "@tanstack/react-router"
 import { Code2, FileText, Image as ImageIcon, NotebookPen } from "lucide-react"
 import { Highlight } from "@/components/Workspace/Highlight"
 import {
@@ -20,6 +21,9 @@ export function ResultsPanel({
   rows,
   loading,
   warning,
+  emptyLibrary,
+  unavailable,
+  onNewNote,
   activeId,
   onSelect,
   sort,
@@ -31,6 +35,9 @@ export function ResultsPanel({
   rows: RankedItem[]
   loading: boolean
   warning: string | null
+  emptyLibrary: boolean
+  unavailable: boolean
+  onNewNote: () => void
   activeId: string | null
   onSelect: (itemId: string) => void
   sort: "relevance" | "recent"
@@ -80,10 +87,34 @@ export function ResultsPanel({
         ) : rows.length === 0 ? (
           <li>
             <div className="zm-empty">
-              <h3 className="zm-empty__title">没有匹配的资料</h3>
+              <h3 className="zm-empty__title">
+                {emptyLibrary
+                  ? "先添加一份资料"
+                  : unavailable
+                    ? "部分资料暂时无法读取"
+                    : "没有匹配的资料"}
+              </h3>
               <p className="zm-empty__text">
-                换个关键词，或切换左侧的知识源范围。代码文件也可以直接按路径检索。
+                {emptyLibrary
+                  ? "上传 Markdown 或 TXT 文档，或先记一条学习笔记。无需配置模型，也能检索和核对原文。"
+                  : unavailable
+                    ? "请先重试上方加载失败的知识源，再检查检索结果。"
+                    : "换个关键词，或切换左侧的知识源范围。代码文件也可以直接按路径检索。"}
               </p>
+              {emptyLibrary ? (
+                <div className="zm-empty__actions">
+                  <Link to="/knowledge" className="zm-btn">
+                    上传资料
+                  </Link>
+                  <button
+                    type="button"
+                    className="zm-btn zm-btn--ghost"
+                    onClick={onNewNote}
+                  >
+                    新建速记
+                  </button>
+                </div>
+              ) : null}
             </div>
           </li>
         ) : (
