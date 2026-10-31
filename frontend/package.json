@@ -6,10 +6,12 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -p tsconfig.build.json && vite build",
+    "typecheck": "tsc --noEmit",
     "lint": "biome check --write --unsafe --no-errors-on-unmatched --files-ignore-unknown=true ./",
     "preview": "vite preview",
     "generate-client": "openapi-ts",
     "test": "bunx playwright test",
+    "test:mock": "bunx --no-install playwright test -c playwright.mock.config.ts",
     "test:ui": "bunx playwright test --ui"
   },
   "dependencies": {
