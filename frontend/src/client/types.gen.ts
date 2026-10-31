@@ -486,6 +486,10 @@ export type ChatRequest = {
      */
     document_id?: string | null;
     /**
+     * Document Ids
+     */
+    document_ids?: Array<string> | null;
+    /**
      * Retrieval Method
      */
     retrieval_method?: 'bm25' | 'vector' | 'hybrid';
@@ -2792,6 +2796,40 @@ export type imagesReadImageFileResponses = {
      */
     200: unknown;
 };
+
+export type imagesReembedImageData = {
+    body?: never;
+    path: {
+        /**
+         * Image Id
+         */
+        image_id: string;
+    };
+    query?: never;
+    url: '/api/v1/images/{image_id}/reembed';
+};
+
+export type imagesReembedImageErrors = {
+    /**
+     * Validation Error
+     */
+    422: HTTPValidationError;
+};
+
+export type imagesReembedImageError = imagesReembedImageErrors[keyof imagesReembedImageErrors];
+
+export type imagesReembedImageResponses = {
+    /**
+     * Response Images-Reembed Image
+     *
+     * Successful Response
+     */
+    200: {
+        [key: string]: string;
+    };
+};
+
+export type imagesReembedImageResponse = imagesReembedImageResponses[keyof imagesReembedImageResponses];
 
 export type imagesDeleteImageData = {
     body?: never;
