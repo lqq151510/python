@@ -1,5 +1,19 @@
 # DevAssist
 
+面向 Python / AI 应用学习的个人资料工作台：上传资料、检索原文、核对来源，并整理学习笔记。
+
+本机演示与发布候选统一使用 [发布指南](docs/RELEASE_CANDIDATE.md)。该入口采用生产构建、独立数据库和回环端口，
+不需要模型密钥即可演示文档检索；首次启动会先完成迁移和管理员初始化。
+
+```bash
+python3 scripts/setup-release.py
+bash scripts/devassist-release.sh --env-file .env.release up
+```
+
+打开 <http://127.0.0.1:8088>；登录账号为 `admin@devassist.example.com`，随机密码仅保存在本地 `.env.release`。
+开发模式仍使用下方的 `scripts/devassist-dev.sh`；发布模式与开发模式的数据相互独立。
+当前验证结果、三分钟演示步骤和未验证能力见发布指南，不将本机发布候选视为公网已上线。
+
 已接入 Trae 开发的 zebao-rag 源码，位于 `services/zebao-rag`。知识库和问答页新增关键词、语义、混合检索；
 使用 `bash scripts/devassist-dev.sh --with-rag` 启动本机向量服务。具体实现、验证边界和协作交接见
 [整合记录](docs/ZEBAO_RAG_INTEGRATION.md) 与 [COLLABORATION.md](COLLABORATION.md)。

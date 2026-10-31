@@ -1,5 +1,7 @@
 # FastAPI Project - Docker Compose Deployment
 
+> This is the upstream remote-deployment reference. For the verified DevAssist local release entry, use [the release guide](docs/RELEASE_CANDIDATE.md). The local release does not publish a public endpoint or configure TLS.
+
 You can deploy the project to your own remote server with Docker Compose. The deployment configuration includes Traefik to handle HTTPS and route incoming traffic to the application.
 
 ## Preparation

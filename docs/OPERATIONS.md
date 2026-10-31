@@ -1,27 +1,33 @@
 # DevAssist 部署、数据库恢复与回滚
 
-本操作手册面向本机 Docker Compose 环境。执行前确认当前目录是 DevAssist 仓库、`.env` 已配置且不会覆盖其他 Compose 项目。数据库恢复会替换 `app` 数据库；务必使用本项目备份并核对目标。
+本操作手册面向本机 Docker Compose 环境。新环境的本机发布请使用独立发布入口。
+下方既有备份、恢复脚本仍针对开发项目 `devassist`，不能直接套用到新的 `devassist-release` 数据卷。
+数据库恢复会替换 `app` 数据库；务必先核对项目、目标数据库及备份归属。
 
 ## 干净环境部署
 
-1. 安装 Docker Desktop 并启动 Docker Engine。
-2. 按根目录 `.env.example` 建立 `.env`，填写必需项和密钥；不要把 `.env` 加入 Git。
-3. 检查配置并构建、启动服务：
+1. 安装并启动 Docker，准备 Python 3（仅用于生成随机配置）。
+2. 从仓库根目录生成独立私有配置，检查并启动：
 
    ```bash
-   docker compose config -q
-   docker compose --project-name devassist up -d --build
+   python3 scripts/setup-release.py
+   bash scripts/devassist-release.sh --env-file .env.release check
+   bash scripts/devassist-release.sh --env-file .env.release up
    ```
 
-4. 核对迁移、服务状态和健康接口：
+   脚本按“构建 → 数据库健康 → 停止旧后端 → 迁移/初始账号 → 后端健康”执行。
+   显式使用 `compose.release.yml`，不合并开发 override；端口仅绑定本机回环，数据卷独立。
+   任一阶段失败不会继续，迁移失败时后端保持停止。首次安装不需要模型密钥。
+
+3. 核对迁移、服务状态和健康接口：
 
    ```bash
-   docker compose --project-name devassist exec -T backend alembic current
-   docker compose --project-name devassist ps
-   curl --fail --silent http://localhost:8000/api/v1/utils/health-check/
+   bash scripts/devassist-release.sh --env-file .env.release status
+   curl --fail --silent http://127.0.0.1:8088/api/v1/utils/health-check/
    ```
 
-5. 记录 Git 提交、Alembic revision、镜像标识、启动时间和健康检查结果到 [OPERATIONS_LOG.md](OPERATIONS_LOG.md)。
+4. 登录、上传一份合成资料，检索原文并刷新确认保留；详细验收与停止命令见 [发布指南](RELEASE_CANDIDATE.md)。
+5. 升级前记录 Git 提交、Alembic revision、镜像标识并备份对应项目的数据。公网主机、TLS 和发布项目的备份恢复另行验收。
 
 ## 备份与恢复演练
 
