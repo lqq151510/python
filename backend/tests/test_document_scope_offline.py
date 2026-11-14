@@ -16,6 +16,7 @@ if __name__ == "__main__":
     )
 
 from pydantic import ValidationError
+from sqlalchemy import event
 from sqlmodel import Session, SQLModel, create_engine
 
 from app.api.routes.chat import _request_hash, create_chat
@@ -33,13 +34,13 @@ class DocumentScopeTests(unittest.TestCase):
         )
         self.owner = uuid.uuid4()
         self.other = uuid.uuid4()
-        self.documents = [uuid.uuid4() for _ in range(4)]
+        self.documents = [uuid.uuid4() for _ in range(21)]
         with Session(self.engine) as session:
             for idx, identifier in enumerate(self.documents):
                 session.add(
                     Document(
                         id=identifier,
-                        owner_id=self.owner if idx < 3 else self.other,
+                        owner_id=self.owner if idx < 20 else self.other,
                         filename=f"{idx}.txt",
                         sha256=str(idx),
                         size_bytes=10,
@@ -57,6 +58,12 @@ class DocumentScopeTests(unittest.TestCase):
                     )
                 )
             session.commit()
+        self.statements: list[str] = []
+        event.listen(
+            self.engine,
+            "before_cursor_execute",
+            lambda _conn, _cursor, statement, *_: self.statements.append(statement),
+        )
 
     def tearDown(self) -> None:
         self.engine.dispose()
@@ -71,8 +78,9 @@ class DocumentScopeTests(unittest.TestCase):
         )
 
     def test_foreign_or_missing_document_rejected(self) -> None:
-        for invalid in (self.documents[3], uuid.uuid4()):
+        for invalid in (self.documents[-1], uuid.uuid4()):
             with self.subTest(invalid=invalid), Session(self.engine) as session:
+                self.statements.clear()
                 with self.assertRaises(KnowledgeError) as error:
                     search_result(
                         session,
@@ -81,6 +89,17 @@ class DocumentScopeTests(unittest.TestCase):
                         document_ids=[self.documents[0], invalid],
                     )
                 self.assertEqual(error.exception.status_code, 404)
+                self.assertEqual(error.exception.code, "document_not_found")
+                self.assertEqual(len(self.statements), 1)
+
+    def test_full_document_scope_uses_two_queries(self) -> None:
+        with Session(self.engine) as session:
+            result = search_result(
+                session, self.owner, "common", document_ids=self.documents[:-1]
+            )
+
+        self.assertEqual(len(result.sources), 5)
+        self.assertEqual(len(self.statements), 2)
 
     def test_request_validation_and_idempotency_scope(self) -> None:
         a, b, c = self.documents[:3]

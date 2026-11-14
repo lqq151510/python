@@ -7,6 +7,7 @@ import uuid
 from collections import Counter, OrderedDict
 from dataclasses import dataclass
 from datetime import datetime
+from threading import Lock
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -181,10 +182,18 @@ def tokenize(text: str) -> list[str]:
     return tokens
 
 
-# 分词是这条链上最贵的步骤（5,000 段约 0.5 s），而片段的文本一旦写入就不再变化。
-# 按「这一批片段 ID」缓存分词结果：新增或删除文档都会换 key，旧条目自然过期。
+@dataclass(frozen=True)
+class _TokenizedCorpus:
+    counts: list[Counter[str]]
+    normalized: list[str]
+    length_penalties: list[float]
+    document_frequencies: Counter[str]
+
+
+# 片段写入后不再变化，新增或删除文档会生成新的快照键。
 _CORPUS_CACHE_SIZE = 4
-_corpus_cache: OrderedDict[str, tuple[list[Counter[str]], list[str]]] = OrderedDict()
+_corpus_cache: OrderedDict[str, _TokenizedCorpus] = OrderedDict()
+_corpus_cache_lock = Lock()
 
 
 def corpus_key(chunk_ids: list[uuid.UUID]) -> str:
@@ -194,26 +203,45 @@ def corpus_key(chunk_ids: list[uuid.UUID]) -> str:
     return f"{len(chunk_ids)}:{digest.hexdigest()}"
 
 
-def tokenized_corpus(
-    key: str, contents: list[str]
-) -> tuple[list[Counter[str]], list[str]]:
-    """返回 (每段的词频, 每段归一化文本)；同一快照只分词一次。"""
-    cached = _corpus_cache.get(key)
-    if cached is not None:
+def _build_tokenized_corpus(contents: list[str]) -> _TokenizedCorpus:
+    counts: list[Counter[str]] = []
+    normalized: list[str] = []
+    lengths: list[int] = []
+    document_frequencies: Counter[str] = Counter()
+    for content in contents:
+        tokens = tokenize(content)
+        count = Counter(tokens)
+        counts.append(count)
+        normalized.append(" ".join(content.casefold().split()))
+        lengths.append(len(tokens))
+        document_frequencies.update(count.keys())
+    average = (sum(lengths) / len(lengths) if lengths else 0) or 1
+    length_penalties = [
+        BM25_K1 * (1 - BM25_B + BM25_B * length / average) for length in lengths
+    ]
+    return _TokenizedCorpus(counts, normalized, length_penalties, document_frequencies)
+
+
+def tokenized_corpus(key: str, contents: list[str]) -> _TokenizedCorpus:
+    with _corpus_cache_lock:
+        cached = _corpus_cache.get(key)
+        if cached is not None:
+            _corpus_cache.move_to_end(key)
+            return cached
+
+    # 分词在锁外执行，避免阻塞其他语料的缓存命中。
+    value = _build_tokenized_corpus(contents)
+    with _corpus_cache_lock:
+        cached = _corpus_cache.setdefault(key, value)
         _corpus_cache.move_to_end(key)
-        return cached
-    counts = [Counter(tokenize(content)) for content in contents]
-    normalized = [" ".join(content.casefold().split()) for content in contents]
-    value = (counts, normalized)
-    _corpus_cache[key] = value
-    _corpus_cache.move_to_end(key)
-    while len(_corpus_cache) > _CORPUS_CACHE_SIZE:
-        _corpus_cache.popitem(last=False)
-    return value
+        if len(_corpus_cache) > _CORPUS_CACHE_SIZE:
+            _corpus_cache.popitem(last=False)
+    return cached
 
 
 def clear_corpus_cache() -> None:
-    _corpus_cache.clear()
+    with _corpus_cache_lock:
+        _corpus_cache.clear()
 
 
 def rank_chunks(
@@ -225,38 +253,35 @@ def rank_chunks(
     terms = set(tokenize(query)[:256])
     if not terms or not contents:
         return []
+    corpus = (
+        _build_tokenized_corpus(contents)
+        if key is None
+        else tokenized_corpus(key, contents)
+    )
+    chunk_count = len(corpus.counts)
+    inverse_frequencies: dict[str, float] = {}
+    for term in terms:
+        document_frequency = corpus.document_frequencies[term]
+        if document_frequency:
+            inverse_frequencies[term] = math.log(
+                1
+                + (chunk_count - document_frequency + 0.5) / (document_frequency + 0.5)
+            )
+    if not inverse_frequencies:
+        return []
+
     normalized_query = " ".join(query.casefold().split())
-    counts: list[Counter[str]]
-    normalized: list[str]
-    if key is None:
-        counts = [Counter(tokenize(content)) for content in contents]
-        normalized = [" ".join(content.casefold().split()) for content in contents]
-    else:
-        counts, normalized = tokenized_corpus(key, contents)
-    lengths = [sum(count.values()) for count in counts]
-    average = sum(lengths) / len(lengths) or 1
-    frequencies = {term: sum(term in count for count in counts) for term in terms}
     results: list[tuple[int, float]] = []
-    for index, count in enumerate(counts):
+    for index, count in enumerate(corpus.counts):
         score = 0.0
-        for term in terms:
+        length_penalty = corpus.length_penalties[index]
+        for term, inverse in inverse_frequencies.items():
             frequency = count[term]
             if not frequency:
                 continue
-            inverse = math.log(
-                1 + (len(counts) - frequencies[term] + 0.5) / (frequencies[term] + 0.5)
-            )
-            score += (
-                inverse
-                * frequency
-                * (BM25_K1 + 1)
-                / (
-                    frequency
-                    + BM25_K1 * (1 - BM25_B + BM25_B * lengths[index] / average)
-                )
-            )
+            score += inverse * frequency * (BM25_K1 + 1) / (frequency + length_penalty)
         if score > 0:
-            if len(terms) > 1 and normalized_query in normalized[index]:
+            if len(terms) > 1 and normalized_query in corpus.normalized[index]:
                 score *= EXACT_PHRASE_BOOST
             results.append((index, score))
     return sorted(results, key=lambda result: (-result[1], result[0]))[:limit]
@@ -290,8 +315,13 @@ def search_result(
     if document_ids is not None:
         if not document_ids or document_id is not None:
             raise ValueError("invalid document scope")
-        for scoped_id in document_ids:
-            owned_document(session, owner_id, scoped_id)
+        owned_ids = session.exec(
+            select(Document.id).where(
+                Document.owner_id == owner_id, col(Document.id).in_(document_ids)
+            )
+        ).all()
+        if set(owned_ids) != set(document_ids):
+            raise KnowledgeError(404, "document_not_found", "文档不存在或已删除。")
     statement = (
         select(DocumentChunk, Document)
         .join(Document, col(DocumentChunk.document_id) == col(Document.id))
