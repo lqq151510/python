@@ -21,8 +21,15 @@ from sqlmodel import Session, SQLModel, create_engine
 
 from app.api.routes.chat import _request_hash, create_chat
 from app.chat import ChatRequest
-from app.knowledge import KnowledgeError, KnowledgeSource, SearchResponse, search_result
+from app.knowledge import (
+    KnowledgeError,
+    KnowledgeSource,
+    SearchResponse,
+    clear_corpus_cache,
+    search_result,
+)
 from app.models import Document, DocumentChunk, User
+from app.semantic import SemanticUnavailable
 
 
 class DocumentScopeTests(unittest.TestCase):
@@ -100,6 +107,182 @@ class DocumentScopeTests(unittest.TestCase):
 
         self.assertEqual(len(result.sources), 5)
         self.assertEqual(len(self.statements), 2)
+
+    def test_repeat_bm25_loads_only_hit_rows(self) -> None:
+        clear_corpus_cache()
+        scope = self.documents[:-1]
+        with Session(self.engine) as session:
+            first = search_result(session, self.owner, "common", document_ids=scope)
+            self.statements.clear()
+            second = search_result(session, self.owner, "scoped", document_ids=scope)
+        self.assertEqual(len(second.sources), 5)
+        self.assertTrue(all("scoped" in source.content for source in second.sources))
+        content_sql = [sql for sql in self.statements if "content" in sql.lower()]
+        self.assertEqual(len(content_sql), 1, self.statements)
+        # 命中行才带正文参数；全量查询会为范围内每份文档都绑定 ID。
+        self.assertLessEqual(
+            content_sql[0].count("?"),
+            len(second.sources) + 2,
+            content_sql[0],
+        )
+        clear_corpus_cache()
+        with Session(self.engine) as session:
+            fresh = search_result(session, self.owner, "scoped", document_ids=scope)
+        self.assertEqual(second.model_dump(), fresh.model_dump())
+        self.assertEqual(len(first.sources), 5)
+
+    def test_repeat_vector_loads_only_hit_rows(self) -> None:
+        clear_corpus_cache()
+        scope = self.documents[:-1]
+        seen: list[list[str]] = []
+
+        def rank(*args, **_kwargs):
+            seen.append(list(args[2]))
+            return [(0, 0.9)]
+
+        with (
+            patch("app.semantic.vector_rank", side_effect=rank),
+            Session(self.engine) as session,
+        ):
+            first = search_result(
+                session, self.owner, "common", document_ids=scope, method="vector"
+            )
+            self.statements.clear()
+            second = search_result(
+                session, self.owner, "scoped", document_ids=scope, method="vector"
+            )
+        self.assertEqual(seen[0], seen[1])
+        self.assertEqual(
+            [source.model_dump() for source in first.sources],
+            [source.model_dump() for source in second.sources],
+        )
+        content_sql = [sql for sql in self.statements if "content" in sql.lower()]
+        self.assertEqual(len(content_sql), 1, self.statements)
+        self.assertLessEqual(
+            content_sql[0].count("?"), len(second.sources) + 2, content_sql[0]
+        )
+
+    def test_vector_after_keyword_reuses_snapshot(self) -> None:
+        clear_corpus_cache()
+        scope = self.documents[:2]
+        seen: list[list[str]] = []
+
+        def rank(*args, **_kwargs):
+            seen.append(list(args[2]))
+            return [(1, 0.8)]
+
+        with (
+            patch("app.semantic.vector_rank", side_effect=rank),
+            Session(self.engine) as session,
+        ):
+            search_result(session, self.owner, "common", document_ids=scope)
+            self.statements.clear()
+            result = search_result(
+                session, self.owner, "common", document_ids=scope, method="vector"
+            )
+        self.assertEqual(len(seen), 1)
+        self.assertIn("common scoped evidence", seen[0][1])
+        content_sql = [sql for sql in self.statements if "content" in sql.lower()]
+        self.assertEqual(len(content_sql), 1, self.statements)
+        self.assertLessEqual(content_sql[0].count("?"), 3, content_sql[0])
+        self.assertEqual(result.sources[0].score, 0.8)
+
+    def test_added_chunk_invalidates_vector_snapshot(self) -> None:
+        clear_corpus_cache()
+        scope = self.documents[:2]
+        seen: list[list[str]] = []
+
+        def rank(*args, **_kwargs):
+            texts = list(args[2])
+            seen.append(texts)
+            match = next(
+                (index for index, text in enumerate(texts) if "zebrafish" in text),
+                0,
+            )
+            return [(match, 0.7)]
+
+        with (
+            patch("app.semantic.vector_rank", side_effect=rank),
+            Session(self.engine) as session,
+        ):
+            search_result(
+                session, self.owner, "common", document_ids=scope, method="vector"
+            )
+            session.add(
+                DocumentChunk(
+                    document_id=scope[0],
+                    position=1,
+                    heading="added",
+                    line_start=2,
+                    line_end=2,
+                    content="unique zebrafish token",
+                )
+            )
+            session.commit()
+            result = search_result(
+                session, self.owner, "zebrafish", document_ids=scope, method="vector"
+            )
+        self.assertTrue(any("zebrafish" in text for text in seen[1]))
+        self.assertEqual(result.sources[0].content, "unique zebrafish token")
+
+    def test_cached_hybrid_timeout_falls_back_without_full_reread(self) -> None:
+        clear_corpus_cache()
+        scope = self.documents[:-1]
+        calls = 0
+
+        def rank(*_args, **_kwargs):
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                return [(0, 0.91)]
+            raise SemanticUnavailable("vector_timeout")
+
+        with (
+            patch("app.semantic.vector_rank", side_effect=rank),
+            Session(self.engine) as session,
+        ):
+            search_result(
+                session, self.owner, "common", document_ids=scope, method="hybrid"
+            )
+            self.statements.clear()
+            second = search_result(
+                session, self.owner, "common", document_ids=scope, method="hybrid"
+            )
+        self.assertEqual(second.method, "bm25")
+        self.assertEqual(second.warning, "vector_timeout")
+        content_sql = [sql for sql in self.statements if "content" in sql.lower()]
+        self.assertEqual(len(content_sql), 1, self.statements)
+        self.assertLessEqual(
+            content_sql[0].count("?"), len(second.sources) + 2, content_sql[0]
+        )
+        clear_corpus_cache()
+        with Session(self.engine) as session:
+            fresh = search_result(
+                session, self.owner, "common", document_ids=scope, method="bm25"
+            )
+        self.assertEqual(
+            [(source.chunk_id, source.score) for source in second.sources],
+            [(source.chunk_id, source.score) for source in fresh.sources],
+        )
+
+    def test_added_chunk_invalidates_cached_ranking(self) -> None:
+        clear_corpus_cache()
+        scope = self.documents[:2]
+        with Session(self.engine) as session:
+            search_result(session, self.owner, "common", document_ids=scope)
+            session.add(
+                DocumentChunk(
+                    document_id=scope[0],
+                    position=1,
+                    heading="added",
+                    line_start=2,
+                    line_end=2,
+                    content="unique zebrafish token",
+                )
+            )
+            session.commit()
+            result = search_result(session, self.owner, "zebrafish", document_ids=scope)
+        self.assertEqual(result.sources[0].content, "unique zebrafish token")
 
     def test_request_validation_and_idempotency_scope(self) -> None:
         a, b, c = self.documents[:3]

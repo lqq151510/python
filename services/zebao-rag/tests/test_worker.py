@@ -46,6 +46,19 @@ class WorkerTests(unittest.TestCase):
         self.ranker.rank(request)
         self.assertLessEqual(len(self.ranker.cache), 2)
 
+    def test_repeated_query_reuses_embedding_without_reusing_document_vector(self):
+        calls = []
+
+        def counting(texts, **kwargs):
+            calls.append(kwargs.get("is_query", False))
+            return encode(texts, **kwargs)
+
+        ranker = Ranker(counting)
+        request = RankRequest(query="cache", chunks=[{"id": "a", "text": "cache"}])
+        self.assertEqual(ranker.rank(request)[0]["id"], "a")
+        self.assertEqual(ranker.rank(request)[0]["id"], "a")
+        self.assertEqual(calls, [False, True])
+
     def test_duplicate_ids_and_extra_parameters_are_rejected(self):
         with self.assertRaises(ValidationError):
             RankRequest(
@@ -190,6 +203,52 @@ class MilvusStoreTests(unittest.TestCase):
         connection.create_collection.assert_not_called()
         connection.upsert.assert_not_called()
         connection.search.assert_not_called()
+
+    def test_existing_vectors_are_not_written_again(self):
+        connection = MagicMock()
+        connection.has_collection.return_value = True
+        connection.describe_collection.return_value = {
+            "fields": [{"name": "vector", "params": {"dim": 2}}]
+        }
+        connection.search.return_value = [[]]
+        connection.get.side_effect = lambda **kwargs: [
+            {"id": item} for item in kwargs["ids"]
+        ]
+        with patch.object(milvus_store, "client", return_value=connection):
+            milvus_store.rank(
+                "owner",
+                ["a", "b"],
+                ["alpha", "beta"],
+                [[1.0, 0.0], [0.0, 1.0]],
+                [[1.0, 0.0]],
+                2,
+                space_id=IDENTITY["space_id"],
+            )
+        connection.upsert.assert_not_called()
+        connection.search.assert_called_once()
+
+    def test_only_missing_vectors_are_written(self):
+        connection = MagicMock()
+        connection.has_collection.return_value = True
+        connection.describe_collection.return_value = {
+            "fields": [{"name": "vector", "params": {"dim": 2}}]
+        }
+        connection.search.return_value = [[]]
+        connection.get.side_effect = lambda **kwargs: [{"id": kwargs["ids"][0]}]
+        with patch.object(milvus_store, "client", return_value=connection):
+            milvus_store.rank(
+                "owner",
+                ["a", "b"],
+                ["alpha", "beta"],
+                [[1.0, 0.0], [0.0, 1.0]],
+                [[1.0, 0.0]],
+                2,
+                space_id=IDENTITY["space_id"],
+            )
+        written = connection.upsert.call_args.kwargs["data"]
+        self.assertEqual(len(written), 1)
+        self.assertEqual(written[0]["chunk_id"], "b")
+        self.assertNotEqual(written[0]["id"], connection.get.call_args.kwargs["ids"][0])
 
     def test_dimension_mismatch_becomes_worker_503(self):
         connection = MagicMock()

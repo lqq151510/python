@@ -2,8 +2,12 @@
 
 import hashlib
 import json
+import logging
 import os
 from functools import lru_cache
+
+logger = logging.getLogger(__name__)
+_LOOKUP_BATCH = 256
 
 
 class MilvusDimensionMismatch(Exception):
@@ -51,14 +55,21 @@ def rank(namespace, identifiers, texts, vectors, query, limit, *, space_id=None)
         hashlib.sha256(json.dumps([space_id, namespace, identifier, text], ensure_ascii=False).encode()).hexdigest()
         for identifier, text in zip(identifiers, texts, strict=True)
     ]
-    connection.upsert(
-        name,
-        data=[
-            {"id": key, "owner_id": namespace, "chunk_id": identifier, "vector": vector}
-            for key, identifier, vector in zip(keys, identifiers, vectors, strict=True)
-        ],
-        timeout=15,
-    )
+    missing = _missing_indexes(connection, name, keys) if collection_exists else list(range(len(keys)))
+    if missing:
+        connection.upsert(
+            name,
+            data=[
+                {
+                    "id": keys[index],
+                    "owner_id": namespace,
+                    "chunk_id": identifiers[index],
+                    "vector": vectors[index],
+                }
+                for index in missing
+            ],
+            timeout=15,
+        )
     result = connection.search(
         name,
         data=query,
@@ -74,3 +85,42 @@ def rank(namespace, identifiers, texts, vectors, query, limit, *, space_id=None)
         {"id": allowed[hit["id"]], "score": max(-1.0, min(1.0, hit["distance"]))}
         for hit in result[0]
     ]
+
+
+def _missing_indexes(connection, name, keys):
+    """Indexes whose vectors are not already stored. None from lookup means write all."""
+    found = set()
+    for start in range(0, len(keys), _LOOKUP_BATCH):
+        batch = keys[start : start + _LOOKUP_BATCH]
+        try:
+            rows = connection.get(
+                collection_name=name, ids=batch, output_fields=["id"], timeout=5
+            )
+        except Exception as exc:
+            logger.warning(
+                "Milvus id lookup failed (%s); writing vectors again",
+                type(exc).__name__,
+            )
+            return list(range(len(keys)))
+        parsed = _parse_ids(rows)
+        if parsed is None:
+            return list(range(len(keys)))
+        found.update(parsed)
+    return [index for index, key in enumerate(keys) if key not in found]
+
+
+def _parse_ids(rows):
+    if isinstance(rows, dict):
+        values = rows.get("id")
+        if isinstance(values, list) and all(isinstance(item, str) for item in values):
+            return values
+        return None
+    if not isinstance(rows, list):
+        return None
+    parsed = []
+    for row in rows:
+        identifier = row.get("id") if isinstance(row, dict) else None
+        if not isinstance(identifier, str):
+            return None
+        parsed.append(identifier)
+    return parsed

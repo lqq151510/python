@@ -12,6 +12,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 from sqlmodel import Session, col, select
+from sqlmodel.sql.expression import SelectOfScalar
 
 from app.models import Document, DocumentChunk
 
@@ -193,6 +194,10 @@ class _TokenizedCorpus:
 # 片段写入后不再变化，新增或删除文档会生成新的快照键。
 _CORPUS_CACHE_SIZE = 4
 _corpus_cache: OrderedDict[str, _TokenizedCorpus] = OrderedDict()
+# 检索范围 -> (分词快照键, 有序片段 ID, 向量检索用的原文)。
+# 纯向量检索没有分词快照，第一项为 None。
+_ScopeSnapshot = tuple[str | None, tuple[uuid.UUID, ...], tuple[str, ...]]
+_scope_cache: OrderedDict[str, _ScopeSnapshot] = OrderedDict()
 _corpus_cache_lock = Lock()
 
 
@@ -242,6 +247,85 @@ def tokenized_corpus(key: str, contents: list[str]) -> _TokenizedCorpus:
 def clear_corpus_cache() -> None:
     with _corpus_cache_lock:
         _corpus_cache.clear()
+        _scope_cache.clear()
+
+
+def _cached_corpus(key: str) -> _TokenizedCorpus | None:
+    with _corpus_cache_lock:
+        cached = _corpus_cache.get(key)
+        if cached is not None:
+            _corpus_cache.move_to_end(key)
+        return cached
+
+
+def _scope_snapshot(scope_key: str) -> _ScopeSnapshot | None:
+    with _corpus_cache_lock:
+        cached = _scope_cache.get(scope_key)
+        if cached is not None:
+            _scope_cache.move_to_end(scope_key)
+        return cached
+
+
+def _remember_scope(
+    scope_key: str,
+    corpus_key: str | None,
+    chunk_ids: tuple[uuid.UUID, ...],
+    texts: tuple[str, ...],
+) -> None:
+    with _corpus_cache_lock:
+        _scope_cache[scope_key] = (corpus_key, chunk_ids, texts)
+        _scope_cache.move_to_end(scope_key)
+        if len(_scope_cache) > _CORPUS_CACHE_SIZE:
+            _scope_cache.popitem(last=False)
+
+
+def _score_corpus(
+    terms: set[str], query: str, corpus: _TokenizedCorpus, limit: int
+) -> list[tuple[int, float]]:
+    if not terms or not corpus.counts:
+        return []
+    chunk_count = len(corpus.counts)
+    inverse_frequencies: dict[str, float] = {}
+    for term in terms:
+        document_frequency = corpus.document_frequencies[term]
+        if document_frequency:
+            inverse_frequencies[term] = math.log(
+                1
+                + (chunk_count - document_frequency + 0.5) / (document_frequency + 0.5)
+            )
+    if not inverse_frequencies:
+        return []
+    normalized_query = " ".join(query.casefold().split())
+    results: list[tuple[int, float]] = []
+    for index, count in enumerate(corpus.counts):
+        score = _bm25_score(count, corpus, index, inverse_frequencies)
+        if score <= 0:
+            continue
+        if len(terms) > 1 and normalized_query in corpus.normalized[index]:
+            score *= EXACT_PHRASE_BOOST
+        results.append((index, score))
+    return sorted(results, key=lambda result: (-result[1], result[0]))[:limit]
+
+
+def _bm25_score(
+    count: Counter[str],
+    corpus: _TokenizedCorpus,
+    index: int,
+    inverse_frequencies: dict[str, float],
+) -> float:
+    score = 0.0
+    length_penalty = corpus.length_penalties[index]
+    for term, inverse in inverse_frequencies.items():
+        frequency = count[term]
+        if frequency:
+            score += inverse * frequency * (BM25_K1 + 1) / (frequency + length_penalty)
+    return score
+
+
+def _rank_corpus(
+    query: str, corpus: _TokenizedCorpus, limit: int
+) -> list[tuple[int, float]]:
+    return _score_corpus(set(tokenize(query)[:256]), query, corpus, limit)
 
 
 def rank_chunks(
@@ -258,33 +342,243 @@ def rank_chunks(
         if key is None
         else tokenized_corpus(key, contents)
     )
-    chunk_count = len(corpus.counts)
-    inverse_frequencies: dict[str, float] = {}
-    for term in terms:
-        document_frequency = corpus.document_frequencies[term]
-        if document_frequency:
-            inverse_frequencies[term] = math.log(
-                1
-                + (chunk_count - document_frequency + 0.5) / (document_frequency + 0.5)
-            )
-    if not inverse_frequencies:
-        return []
+    return _score_corpus(terms, query, corpus, limit)
 
-    normalized_query = " ".join(query.casefold().split())
-    results: list[tuple[int, float]] = []
-    for index, count in enumerate(corpus.counts):
-        score = 0.0
-        length_penalty = corpus.length_penalties[index]
-        for term, inverse in inverse_frequencies.items():
-            frequency = count[term]
-            if not frequency:
-                continue
-            score += inverse * frequency * (BM25_K1 + 1) / (frequency + length_penalty)
-        if score > 0:
-            if len(terms) > 1 and normalized_query in corpus.normalized[index]:
-                score *= EXACT_PHRASE_BOOST
-            results.append((index, score))
-    return sorted(results, key=lambda result: (-result[1], result[0]))[:limit]
+
+def _retrieval_scope_key(
+    owner_id: uuid.UUID,
+    document_id: uuid.UUID | None,
+    document_ids: list[uuid.UUID] | None,
+) -> str:
+    if document_ids is not None:
+        scope = ",".join(sorted(str(item) for item in document_ids))
+    elif document_id is not None:
+        scope = str(document_id)
+    else:
+        scope = "*"
+    return f"{owner_id}|{scope}"
+
+
+def _chunk_id_statement(
+    owner_id: uuid.UUID,
+    document_id: uuid.UUID | None,
+    document_ids: list[uuid.UUID] | None,
+) -> SelectOfScalar[uuid.UUID]:
+    """只取有序片段 ID。排序必须与全量片段查询一致，缓存下标才能对上。"""
+    statement = (
+        select(DocumentChunk.id)
+        .join(Document, col(DocumentChunk.document_id) == col(Document.id))
+        .where(Document.owner_id == owner_id)
+    )
+    if document_id is not None:
+        statement = statement.where(Document.id == document_id)
+    if document_ids is not None:
+        statement = statement.where(col(Document.id).in_(document_ids))
+    return statement.order_by(
+        col(Document.created_at), col(Document.id), col(DocumentChunk.position)
+    )
+
+
+def _public_sources(
+    pairs: list[tuple[DocumentChunk, Document]], scores: list[float]
+) -> list[KnowledgeSource]:
+    sources: list[KnowledgeSource] = []
+    for number, ((chunk, doc), score) in enumerate(zip(pairs, scores, strict=True), 1):
+        sources.append(
+            KnowledgeSource(
+                citation=f"S{number}",
+                document_id=doc.id,
+                chunk_id=chunk.id,
+                filename=doc.filename,
+                heading=chunk.heading,
+                line_start=chunk.line_start,
+                line_end=chunk.line_end,
+                content=chunk.content,
+                score=round(score, 6),
+            )
+        )
+    return sources
+
+
+def _sources_for_ranked_ids(
+    session: Session,
+    owner_id: uuid.UUID,
+    chunk_ids: tuple[uuid.UUID, ...],
+    ranked: list[tuple[int, float]],
+) -> list[KnowledgeSource] | None:
+    if not ranked:
+        return []
+    wanted = [chunk_ids[index] for index, _score in ranked]
+    rows = session.exec(
+        select(DocumentChunk, Document)
+        .join(Document, col(DocumentChunk.document_id) == col(Document.id))
+        .where(
+            col(Document.owner_id) == owner_id,
+            col(DocumentChunk.id).in_(wanted),
+        )
+    ).all()
+    by_id = {chunk.id: (chunk, doc) for chunk, doc in rows}
+    if len(by_id) != len(wanted):
+        return None
+    pairs = [by_id[chunk_id] for chunk_id in wanted]
+    return _public_sources(pairs, [score for _index, score in ranked])
+
+
+def _cached_bm25_sources(
+    session: Session,
+    owner_id: uuid.UUID,
+    query: str,
+    limit: int,
+    document_id: uuid.UUID | None,
+    document_ids: list[uuid.UUID] | None,
+) -> list[KnowledgeSource] | None:
+    snapshot = _scope_snapshot(
+        _retrieval_scope_key(owner_id, document_id, document_ids)
+    )
+    if snapshot is None:
+        return None
+    corpus_key_value, expected_ids, texts = snapshot
+    if corpus_key_value is None or len(texts) != len(expected_ids):
+        return None
+    corpus = _cached_corpus(corpus_key_value)
+    if corpus is None or len(corpus.counts) != len(expected_ids):
+        return None
+    current_ids = tuple(
+        session.exec(_chunk_id_statement(owner_id, document_id, document_ids)).all()
+    )
+    if current_ids != expected_ids:
+        return None
+    ranked = _rank_corpus(query, corpus, limit)
+    return _sources_for_ranked_ids(session, owner_id, expected_ids, ranked)
+
+
+def _apply_dense(
+    method: RetrievalMethod,
+    query: str,
+    identifiers: list[str],
+    texts: list[str],
+    depth: int,
+    owner_id: uuid.UUID,
+    vector_store: str | None,
+    lexical: list[tuple[int, float]],
+    limit: int,
+) -> tuple[list[tuple[int, float]], RetrievalMethod, str | None, str | None]:
+    ranked = lexical
+    actual_method: RetrievalMethod = method
+    warning = None
+    cache_status = None
+    if identifiers and method != "bm25":
+        from app.semantic import SemanticUnavailable, fuse_rankings, vector_rank
+
+        cache_info: dict[str, str] = {}
+        try:
+            dense = vector_rank(
+                query,
+                identifiers,
+                texts,
+                depth,
+                str(owner_id),
+                vector_store,
+                cache_info,
+            )
+            ranked = (
+                fuse_rankings(lexical, dense, limit=limit)
+                if method == "hybrid"
+                else dense
+            )
+        except SemanticUnavailable as exc:
+            if method == "vector":
+                raise KnowledgeError(
+                    503,
+                    exc.code,
+                    "语义检索暂不可用，请切换关键词检索或检查本地检索服务。",
+                ) from None
+            actual_method, warning = "bm25", exc.code
+        cache_status = cache_info.get("status")
+    return ranked[:limit], actual_method, warning, cache_status
+
+
+def _search_response(
+    query: str,
+    method: RetrievalMethod,
+    sources: list[KnowledgeSource],
+    document_id: uuid.UUID | None,
+    warning: str | None,
+    cache_status: str | None,
+    vector_store: str | None,
+    requested_method: RetrievalMethod,
+) -> SearchResponse:
+    from app.core.config import settings
+
+    return SearchResponse(
+        query=query,
+        method=method,
+        sources=sources,
+        document_id=document_id,
+        warning=warning,
+        cache_status=cache_status,
+        vector_store=(vector_store or settings.RAG_VECTOR_STORE)
+        if requested_method != "bm25"
+        else None,
+    )
+
+
+def _cached_semantic_response(
+    session: Session,
+    owner_id: uuid.UUID,
+    query: str,
+    limit: int,
+    document_id: uuid.UUID | None,
+    document_ids: list[uuid.UUID] | None,
+    method: Literal["vector", "hybrid"],
+    vector_store: str | None,
+) -> SearchResponse | None:
+    snapshot = _scope_snapshot(
+        _retrieval_scope_key(owner_id, document_id, document_ids)
+    )
+    if snapshot is None:
+        return None
+    corpus_key_value, expected_ids, texts = snapshot
+    if len(texts) != len(expected_ids) or not texts:
+        return None
+    corpus = None
+    if method == "hybrid":
+        if corpus_key_value is None:
+            return None
+        corpus = _cached_corpus(corpus_key_value)
+        if corpus is None or len(corpus.counts) != len(expected_ids):
+            return None
+    current_ids = tuple(
+        session.exec(_chunk_id_statement(owner_id, document_id, document_ids)).all()
+    )
+    if current_ids != expected_ids:
+        return None
+    depth = 20 if method == "hybrid" else limit
+    lexical = _rank_corpus(query, corpus, depth) if corpus is not None else []
+    ranked, actual_method, warning, cache_status = _apply_dense(
+        method,
+        query,
+        [str(chunk_id) for chunk_id in expected_ids],
+        list(texts),
+        depth,
+        owner_id,
+        vector_store,
+        lexical,
+        limit,
+    )
+    sources = _sources_for_ranked_ids(session, owner_id, expected_ids, ranked)
+    if sources is None:
+        return None
+    return _search_response(
+        query,
+        actual_method,
+        sources,
+        document_id,
+        warning,
+        cache_status,
+        vector_store,
+        method,
+    )
 
 
 def search_documents(
@@ -307,9 +601,6 @@ def search_result(
     vector_store: str | None = None,
     document_ids: list[uuid.UUID] | None = None,
 ) -> SearchResponse:
-    from app.core.config import settings
-    from app.semantic import SemanticUnavailable, fuse_rankings, vector_rank
-
     if document_id is not None:
         owned_document(session, owner_id, document_id)
     if document_ids is not None:
@@ -322,6 +613,34 @@ def search_result(
         ).all()
         if set(owned_ids) != set(document_ids):
             raise KnowledgeError(404, "document_not_found", "文档不存在或已删除。")
+    if method == "bm25":
+        cached_sources = _cached_bm25_sources(
+            session, owner_id, query, limit, document_id, document_ids
+        )
+        if cached_sources is not None:
+            return _search_response(
+                query,
+                "bm25",
+                cached_sources,
+                document_id,
+                None,
+                None,
+                None,
+                "bm25",
+            )
+    if method != "bm25":
+        cached_response = _cached_semantic_response(
+            session,
+            owner_id,
+            query,
+            limit,
+            document_id,
+            document_ids,
+            method,
+            vector_store,
+        )
+        if cached_response is not None:
+            return cached_response
     statement = (
         select(DocumentChunk, Document)
         .join(Document, col(DocumentChunk.document_id) == col(Document.id))
@@ -337,64 +656,46 @@ def search_result(
     rows = session.exec(statement).all()
     texts = [f"{doc.filename}\n{chunk.heading}\n{chunk.content}" for chunk, doc in rows]
     depth = 20 if method == "hybrid" else limit
-    ranked = (
-        rank_chunks(query, texts, depth, corpus_key([chunk.id for chunk, _ in rows]))
-        if method != "vector"
-        else []
-    )
-    actual_method, warning = method, None
-    cache_info: dict[str, str] = {}
-    if rows and method != "bm25":
-        try:
-            dense = vector_rank(
-                query,
-                [str(chunk.id) for chunk, _ in rows],
-                texts,
-                depth,
-                str(owner_id),
-                vector_store,
-                cache_info,
-            )
-            ranked = (
-                fuse_rankings(ranked, dense, limit=limit)
-                if method == "hybrid"
-                else dense
-            )
-        except SemanticUnavailable as exc:
-            if method == "vector":
-                raise KnowledgeError(
-                    503,
-                    exc.code,
-                    "语义检索暂不可用，请切换关键词检索或检查本地检索服务。",
-                ) from None
-            actual_method, warning = "bm25", exc.code
-    ranked = ranked[:limit]
-    sources: list[KnowledgeSource] = []
-    for number, (index, score) in enumerate(ranked, 1):
-        chunk, doc = rows[index]
-        sources.append(
-            KnowledgeSource(
-                citation=f"S{number}",
-                document_id=doc.id,
-                chunk_id=chunk.id,
-                filename=doc.filename,
-                heading=chunk.heading,
-                line_start=chunk.line_start,
-                line_end=chunk.line_end,
-                content=chunk.content,
-                score=round(score, 6),
-            )
+    chunk_ids = tuple(chunk.id for chunk, _document in rows)
+    snapshot_key = corpus_key(list(chunk_ids)) if chunk_ids else None
+    if snapshot_key is not None:
+        stored_key = None
+        if method != "vector":
+            tokenized_corpus(snapshot_key, texts)
+            stored_key = snapshot_key
+        _remember_scope(
+            _retrieval_scope_key(owner_id, document_id, document_ids),
+            stored_key,
+            chunk_ids,
+            tuple(texts),
         )
-    return SearchResponse(
-        query=query,
-        method=actual_method,
-        sources=sources,
-        document_id=document_id,
-        warning=warning,
-        cache_status=cache_info.get("status"),
-        vector_store=(vector_store or settings.RAG_VECTOR_STORE)
-        if method != "bm25"
-        else None,
+    lexical = (
+        rank_chunks(query, texts, depth, snapshot_key) if method != "vector" else []
+    )
+    ranked, actual_method, warning, cache_status = _apply_dense(
+        method,
+        query,
+        [str(chunk_id) for chunk_id in chunk_ids],
+        texts,
+        depth,
+        owner_id,
+        vector_store,
+        lexical,
+        limit,
+    )
+    sources = _public_sources(
+        [rows[index] for index, _score in ranked],
+        [score for _index, score in ranked],
+    )
+    return _search_response(
+        query,
+        actual_method,
+        sources,
+        document_id,
+        warning,
+        cache_status,
+        vector_store,
+        method,
     )
 
 

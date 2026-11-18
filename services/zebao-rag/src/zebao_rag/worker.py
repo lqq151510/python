@@ -2,7 +2,9 @@
 
 PostgreSQL remains the source of truth. Each request uses a temporary Chroma
 collection containing only its supplied candidates; no private corpus is read.
-Only normalized document embeddings are cached in bounded process memory.
+Document embeddings and recent query embeddings are cached in bounded process
+memory. Query vectors keep the retrieval instruction, so they are not reused as
+document vectors.
 """
 
 import argparse
@@ -33,6 +35,7 @@ IMAGE_QUERY_INSTRUCTION = "Retrieve relevant images for the query."
 TEXT_INSTRUCTION = (
     "Given a question, retrieve relevant text documents that answer the question."
 )
+_QUERY_CACHE_SIZE = 64
 logger = logging.getLogger(__name__)
 
 
@@ -71,6 +74,7 @@ class Ranker:
         self.encode = encode
         self.cache_size = cache_size
         self.cache: OrderedDict[str, list[float]] = OrderedDict()
+        self.query_cache: OrderedDict[str, list[list[float]]] = OrderedDict()
 
     def rank(self, request: RankRequest, space_id: str | None = None) -> list[dict]:
         # The HTTP handler serializes rank() calls to bound GPU concurrency.
@@ -96,9 +100,7 @@ class Ranker:
                 self.cache.move_to_end(key)
             while len(self.cache) > self.cache_size:
                 self.cache.popitem(last=False)
-        query = self.encode(
-            [request.query], is_query=True, instruction=TEXT_INSTRUCTION
-        )
+        query = self._query_embedding(request.query)
         if request.engine == "milvus":
             from .milvus_store import rank
 
@@ -133,6 +135,19 @@ class Ranker:
             ]
         finally:
             self.client.delete_collection(name)
+
+    def _query_embedding(self, text: str) -> list[list[float]]:
+        key = hashlib.sha256(f"{TEXT_INSTRUCTION}\n{text}".encode()).hexdigest()
+        cached = self.query_cache.get(key)
+        if cached is not None:
+            self.query_cache.move_to_end(key)
+            return cached
+        encoded = self.encode([text], is_query=True, instruction=TEXT_INSTRUCTION)
+        self.query_cache[key] = encoded
+        self.query_cache.move_to_end(key)
+        while len(self.query_cache) > _QUERY_CACHE_SIZE:
+            self.query_cache.popitem(last=False)
+        return encoded
 
 
 class EmbedRequest(BaseModel):
