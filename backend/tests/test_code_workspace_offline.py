@@ -567,6 +567,7 @@ def test_batch_still_rejects_unsafe_paths(
             owner, [code_agent.CodeApplyEdit(path=invalid_path, content="unsafe", base_version="missing")]
         )
     assert error.value.code == "invalid_workspace_path"
+    assert not (code_agent.settings.CODE_WORKSPACE_DIR / ".locks").exists()
 
 
 @pytest.mark.parametrize("change", ["modify", "delete", "create"])

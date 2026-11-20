@@ -359,17 +359,11 @@ def _retrieval_scope_key(
     return f"{owner_id}|{scope}"
 
 
-def _chunk_id_statement(
-    owner_id: uuid.UUID,
-    document_id: uuid.UUID | None,
-    document_ids: list[uuid.UUID] | None,
-) -> SelectOfScalar[uuid.UUID]:
-    """只取有序片段 ID。排序必须与全量片段查询一致，缓存下标才能对上。"""
-    statement = (
-        select(DocumentChunk.id)
-        .join(Document, col(DocumentChunk.document_id) == col(Document.id))
-        .where(Document.owner_id == owner_id)
-    )
+def _scoped_chunks(statement, owner_id, document_id, document_ids):
+    """片段顺序必须固定，授权 ID 和排序文本的下标才能对齐。"""
+    statement = statement.join(
+        Document, col(DocumentChunk.document_id) == col(Document.id)
+    ).where(Document.owner_id == owner_id)
     if document_id is not None:
         statement = statement.where(Document.id == document_id)
     if document_ids is not None:
@@ -377,6 +371,69 @@ def _chunk_id_statement(
     return statement.order_by(
         col(Document.created_at), col(Document.id), col(DocumentChunk.position)
     )
+
+
+def _chunk_id_statement(
+    owner_id: uuid.UUID,
+    document_id: uuid.UUID | None,
+    document_ids: list[uuid.UUID] | None,
+) -> SelectOfScalar[uuid.UUID]:
+    """只取有序片段 ID。排序必须与排序文本查询一致，缓存下标才能对上。"""
+    return _scoped_chunks(
+        select(DocumentChunk.id), owner_id, document_id, document_ids
+    )
+
+
+def authorized_chunk_ids(
+    session: Session,
+    owner_id: uuid.UUID,
+    document_id: uuid.UUID | None = None,
+    document_ids: list[uuid.UUID] | None = None,
+) -> tuple[uuid.UUID, ...]:
+    """校验文档属于当前用户，并返回该范围内的有序片段 ID。"""
+    if document_id is not None:
+        owned_document(session, owner_id, document_id)
+    if document_ids is not None:
+        if not document_ids or document_id is not None:
+            raise ValueError("invalid document scope")
+        owned_ids = session.exec(
+            select(Document.id).where(
+                Document.owner_id == owner_id, col(Document.id).in_(document_ids)
+            )
+        ).all()
+        if set(owned_ids) != set(document_ids):
+            raise KnowledgeError(404, "document_not_found", "文档不存在或已删除。")
+    return tuple(
+        session.exec(_chunk_id_statement(owner_id, document_id, document_ids)).all()
+    )
+
+
+def _load_ranking_snapshot(
+    session: Session,
+    owner_id: uuid.UUID,
+    document_id: uuid.UUID | None,
+    document_ids: list[uuid.UUID] | None,
+) -> tuple[tuple[uuid.UUID, ...], tuple[str, ...]]:
+    """读取排序用的文件名、标题和正文，不装配整行 ORM。"""
+    rows = session.exec(
+        _scoped_chunks(
+            select(
+                DocumentChunk.id,
+                Document.filename,
+                DocumentChunk.heading,
+                DocumentChunk.content,
+            ),
+            owner_id,
+            document_id,
+            document_ids,
+        )
+    ).all()
+    chunk_ids: list[uuid.UUID] = []
+    texts: list[str] = []
+    for chunk_id, filename, heading, content in rows:
+        chunk_ids.append(chunk_id)
+        texts.append(f"{filename}\n{heading}\n{content}")
+    return tuple(chunk_ids), tuple(texts)
 
 
 def _public_sources(
@@ -431,6 +488,7 @@ def _cached_bm25_sources(
     limit: int,
     document_id: uuid.UUID | None,
     document_ids: list[uuid.UUID] | None,
+    current_ids: tuple[uuid.UUID, ...],
 ) -> list[KnowledgeSource] | None:
     snapshot = _scope_snapshot(
         _retrieval_scope_key(owner_id, document_id, document_ids)
@@ -443,9 +501,6 @@ def _cached_bm25_sources(
     corpus = _cached_corpus(corpus_key_value)
     if corpus is None or len(corpus.counts) != len(expected_ids):
         return None
-    current_ids = tuple(
-        session.exec(_chunk_id_statement(owner_id, document_id, document_ids)).all()
-    )
     if current_ids != expected_ids:
         return None
     ranked = _rank_corpus(query, corpus, limit)
@@ -532,6 +587,7 @@ def _cached_semantic_response(
     document_ids: list[uuid.UUID] | None,
     method: Literal["vector", "hybrid"],
     vector_store: str | None,
+    current_ids: tuple[uuid.UUID, ...],
 ) -> SearchResponse | None:
     snapshot = _scope_snapshot(
         _retrieval_scope_key(owner_id, document_id, document_ids)
@@ -548,9 +604,6 @@ def _cached_semantic_response(
         corpus = _cached_corpus(corpus_key_value)
         if corpus is None or len(corpus.counts) != len(expected_ids):
             return None
-    current_ids = tuple(
-        session.exec(_chunk_id_statement(owner_id, document_id, document_ids)).all()
-    )
     if current_ids != expected_ids:
         return None
     depth = 20 if method == "hybrid" else limit
@@ -591,6 +644,62 @@ def search_documents(
     return search_result(session, owner_id, query, limit, document_id).sources
 
 
+def _search_uncached(
+    session: Session,
+    owner_id: uuid.UUID,
+    query: str,
+    limit: int,
+    document_id: uuid.UUID | None,
+    document_ids: list[uuid.UUID] | None,
+    method: RetrievalMethod,
+    vector_store: str | None,
+) -> SearchResponse:
+    chunk_ids, texts = _load_ranking_snapshot(
+        session, owner_id, document_id, document_ids
+    )
+    depth = 20 if method == "hybrid" else limit
+    text_list = list(texts)
+    snapshot_key = corpus_key(list(chunk_ids)) if chunk_ids else None
+    if snapshot_key is not None:
+        stored_key = None
+        if method != "vector":
+            tokenized_corpus(snapshot_key, text_list)
+            stored_key = snapshot_key
+        _remember_scope(
+            _retrieval_scope_key(owner_id, document_id, document_ids),
+            stored_key,
+            chunk_ids,
+            texts,
+        )
+    lexical = (
+        rank_chunks(query, text_list, depth, snapshot_key)
+        if method != "vector"
+        else []
+    )
+    ranked, actual_method, warning, cache_status = _apply_dense(
+        method,
+        query,
+        [str(chunk_id) for chunk_id in chunk_ids],
+        text_list,
+        depth,
+        owner_id,
+        vector_store,
+        lexical,
+        limit,
+    )
+    sources = _sources_for_ranked_ids(session, owner_id, chunk_ids, ranked)
+    return _search_response(
+        query,
+        actual_method,
+        [] if sources is None else sources,
+        document_id,
+        warning,
+        cache_status,
+        vector_store,
+        method,
+    )
+
+
 def search_result(
     session: Session,
     owner_id: uuid.UUID,
@@ -601,21 +710,18 @@ def search_result(
     vector_store: str | None = None,
     document_ids: list[uuid.UUID] | None = None,
 ) -> SearchResponse:
-    if document_id is not None:
-        owned_document(session, owner_id, document_id)
-    if document_ids is not None:
-        if not document_ids or document_id is not None:
-            raise ValueError("invalid document scope")
-        owned_ids = session.exec(
-            select(Document.id).where(
-                Document.owner_id == owner_id, col(Document.id).in_(document_ids)
-            )
-        ).all()
-        if set(owned_ids) != set(document_ids):
-            raise KnowledgeError(404, "document_not_found", "文档不存在或已删除。")
+    current_ids = authorized_chunk_ids(
+        session, owner_id, document_id, document_ids
+    )
     if method == "bm25":
         cached_sources = _cached_bm25_sources(
-            session, owner_id, query, limit, document_id, document_ids
+            session,
+            owner_id,
+            query,
+            limit,
+            document_id,
+            document_ids,
+            current_ids,
         )
         if cached_sources is not None:
             return _search_response(
@@ -638,64 +744,19 @@ def search_result(
             document_ids,
             method,
             vector_store,
+            current_ids,
         )
         if cached_response is not None:
             return cached_response
-    statement = (
-        select(DocumentChunk, Document)
-        .join(Document, col(DocumentChunk.document_id) == col(Document.id))
-        .where(Document.owner_id == owner_id)
-        .order_by(
-            col(Document.created_at), col(Document.id), col(DocumentChunk.position)
-        )
-    )
-    if document_id is not None:
-        statement = statement.where(Document.id == document_id)
-    if document_ids is not None:
-        statement = statement.where(col(Document.id).in_(document_ids))
-    rows = session.exec(statement).all()
-    texts = [f"{doc.filename}\n{chunk.heading}\n{chunk.content}" for chunk, doc in rows]
-    depth = 20 if method == "hybrid" else limit
-    chunk_ids = tuple(chunk.id for chunk, _document in rows)
-    snapshot_key = corpus_key(list(chunk_ids)) if chunk_ids else None
-    if snapshot_key is not None:
-        stored_key = None
-        if method != "vector":
-            tokenized_corpus(snapshot_key, texts)
-            stored_key = snapshot_key
-        _remember_scope(
-            _retrieval_scope_key(owner_id, document_id, document_ids),
-            stored_key,
-            chunk_ids,
-            tuple(texts),
-        )
-    lexical = (
-        rank_chunks(query, texts, depth, snapshot_key) if method != "vector" else []
-    )
-    ranked, actual_method, warning, cache_status = _apply_dense(
-        method,
-        query,
-        [str(chunk_id) for chunk_id in chunk_ids],
-        texts,
-        depth,
+    return _search_uncached(
+        session,
         owner_id,
-        vector_store,
-        lexical,
-        limit,
-    )
-    sources = _public_sources(
-        [rows[index] for index, _score in ranked],
-        [score for _index, score in ranked],
-    )
-    return _search_response(
         query,
-        actual_method,
-        sources,
+        limit,
         document_id,
-        warning,
-        cache_status,
-        vector_store,
+        document_ids,
         method,
+        vector_store,
     )
 
 

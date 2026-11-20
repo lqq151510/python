@@ -20,5 +20,6 @@ backend/playwright/.auth/
 services/zebao-rag/.venv/
 services/zebao-rag/data/
 services/zebao-rag/chroma_db/
+services/zebao-rag/models/
 services/zebao-rag/src/**/__pycache__/
 .serena/

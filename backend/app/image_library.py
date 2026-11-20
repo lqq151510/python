@@ -260,19 +260,24 @@ def reembed_image(session: Session, owner_id: uuid.UUID, image_id: uuid.UUID) ->
             "revision": uuid.uuid4().hex,
         }
     )
-    try:
-        result = session.execute(
-            update(ImageAsset)
-            .where(
-                ImageAsset.id == image_id,
-                ImageAsset.owner_id == owner_id,
-                ImageAsset.sha256 == digest,
-                ImageAsset.media_type == media_type,
-                ImageAsset.size_bytes == size_bytes,
-                ImageAsset.embedding_json == original_embedding,
-            )
-            .values(embedding_json=replacement)
+    statement = (
+        update(ImageAsset)
+        .where(
+            # col() 让比较表达式保持 ColumnElement[bool]；否则 strict mypy 会把
+            # Model.field == value 判成 bool，DML.where() 就无法通过类型检查。
+            col(ImageAsset.id) == image_id,
+            col(ImageAsset.owner_id) == owner_id,
+            col(ImageAsset.sha256) == digest,
+            col(ImageAsset.media_type) == media_type,
+            col(ImageAsset.size_bytes) == size_bytes,
+            col(ImageAsset.embedding_json) == original_embedding,
         )
+        .values(embedding_json=replacement)
+    )
+    try:
+        # 对 DML 语句，SQLModel 的 exec() 原样返回 CursorResult，行数就是
+        # rowcount，用它做乐观并发校验；不要走被 ty 判为弃用的 execute()。
+        result = session.exec(statement)
         if result.rowcount != 1:
             session.rollback()
             raise ImageError(

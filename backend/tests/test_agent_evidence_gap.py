@@ -7,6 +7,7 @@ import pytest
 
 from app import web_agent
 from app.grounded_answer import INSUFFICIENT_EVIDENCE_ANSWER
+from app.knowledge import KnowledgeSource
 from app.web_agent import (
     AgentSessionPublic,
     AgentTurnPublic,
@@ -110,8 +111,9 @@ def test_matching_command_still_calls_model(monkeypatch: pytest.MonkeyPatch) -> 
         evidence: str,
         owner_id: object,
         request_id: str,
+        sources: object = None,
     ) -> tuple[str, list[web_agent.AgentStepPublic], bool]:
-        del history, evidence, owner_id, request_id
+        del history, evidence, owner_id, request_id, sources
         called.append(question)
         return "运行 redis-cli ping。", [], False
 
@@ -142,6 +144,7 @@ def test_initial_retrieval_keeps_five_full_chunks(
 ) -> None:
     sources = [
         SimpleNamespace(
+            citation=f"S{index}",
             heading=f"标题{index}",
             content=f"正文{index}" + ("很长" * 200),
             filename="notes.md",
@@ -182,3 +185,63 @@ def test_initial_retrieval_keeps_five_full_chunks(
     )
     assert full_tail not in evidence.text
     assert full_tail in evidence.chunks[0]
+    assert "[S1]" in evidence.text
+    assert "[S6]" not in evidence.text
+    assert len(evidence.sources) == 5
+    assert evidence.sources[0].content.endswith(full_tail)
+
+
+def _document_source(content: str = "排队中的任务可以取消。") -> KnowledgeSource:
+    return KnowledgeSource(
+        citation="S1",
+        document_id=uuid4(),
+        chunk_id=uuid4(),
+        filename="notes.md",
+        heading="任务",
+        line_start=1,
+        line_end=2,
+        content=content,
+        score=1.0,
+    )
+
+
+def test_unlabelled_or_truncated_answer_becomes_excerpt() -> None:
+    source = _document_source()
+    unlabelled = web_agent.finalize_agent_answer(
+        "我认为可以取消。",
+        [source],
+        complete=True,
+        used_tools=False,
+    )
+    assert unlabelled.startswith("模型回答未能可靠标注来源")
+    assert source.content in unlabelled
+    truncated = web_agent.finalize_agent_answer(
+        "我认为可以取消。[S1]",
+        [source],
+        complete=False,
+        used_tools=False,
+    )
+    assert truncated.startswith("模型回答未能可靠标注来源")
+
+
+def test_labelled_document_answer_is_kept() -> None:
+    source = _document_source()
+    answer = "排队中的任务可以取消。[S1]"
+    assert (
+        web_agent.finalize_agent_answer(
+            answer, [source], complete=True, used_tools=False
+        )
+        == answer
+    )
+
+
+def test_tool_round_or_missing_documents_keeps_model_text() -> None:
+    source = _document_source()
+    raw = "第二次检索后的结论。"
+    assert (
+        web_agent.finalize_agent_answer(raw, [source], complete=True, used_tools=True)
+        == raw
+    )
+    assert (
+        web_agent.finalize_agent_answer(raw, [], complete=True, used_tools=False) == raw
+    )

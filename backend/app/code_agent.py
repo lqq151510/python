@@ -843,14 +843,17 @@ def _validate_edits(edits: Sequence[CodeFileEdit]) -> list[CodeFileEdit]:
 def apply_workspace_edits(
     owner_id: uuid.UUID, edits: list[CodeApplyEdit]
 ) -> CodeWorkspacePublic:
+    # 路径、重复和体积不读磁盘；拒绝时不创建锁文件，也不申请工作区锁。
+    normalized = _validate_edits(edits)
     with _workspace_writer(owner_id):
-        return _apply_workspace_edits(owner_id, edits)
+        return _apply_workspace_edits(owner_id, edits, normalized)
 
 
 def _apply_workspace_edits(
-    owner_id: uuid.UUID, edits: list[CodeApplyEdit]
+    owner_id: uuid.UUID,
+    edits: list[CodeApplyEdit],
+    normalized: list[CodeFileEdit],
 ) -> CodeWorkspacePublic:
-    normalized = _validate_edits(edits)
     for requested_edit, item in zip(edits, normalized, strict=True):
         if (
             _snapshot_version(_workspace_snapshot(owner_id, item.path))

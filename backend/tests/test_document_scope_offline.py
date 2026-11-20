@@ -99,14 +99,34 @@ class DocumentScopeTests(unittest.TestCase):
                 self.assertEqual(error.exception.code, "document_not_found")
                 self.assertEqual(len(self.statements), 1)
 
-    def test_full_document_scope_uses_two_queries(self) -> None:
+    def test_cold_search_loads_ranking_text_then_hit_rows(self) -> None:
         with Session(self.engine) as session:
             result = search_result(
                 session, self.owner, "common", document_ids=self.documents[:-1]
             )
 
         self.assertEqual(len(result.sources), 5)
-        self.assertEqual(len(self.statements), 2)
+        # 归属、有序 ID、排序文本、命中行。
+        self.assertEqual(len(self.statements), 4)
+        content_sql = [sql for sql in self.statements if "content" in sql.lower()]
+        self.assertEqual(len(content_sql), 2, self.statements)
+        self.assertLessEqual(
+            min(sql.count("?") for sql in content_sql),
+            len(result.sources) + 2,
+        )
+
+    def test_cold_search_matches_a_cleared_cache_search(self) -> None:
+        clear_corpus_cache()
+        scope = self.documents[:-1]
+        with Session(self.engine) as session:
+            first = search_result(session, self.owner, "common", document_ids=scope)
+        clear_corpus_cache()
+        with Session(self.engine) as session:
+            second = search_result(session, self.owner, "common", document_ids=scope)
+        self.assertEqual(
+            [(source.chunk_id, source.score) for source in first.sources],
+            [(source.chunk_id, source.score) for source in second.sources],
+        )
 
     def test_repeat_bm25_loads_only_hit_rows(self) -> None:
         clear_corpus_cache()

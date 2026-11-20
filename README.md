@@ -2,6 +2,18 @@
 
 面向 Python / AI 应用学习的个人资料工作台：上传资料、检索原文、核对来源，并整理学习笔记。
 
+DevAssist 是唯一维护项目：前端位于 `frontend/`，后端位于 `backend/`，RAG 与本地 CLI 位于
+`services/zebao-rag/`。网页、模型 worker 和 CLI 都从本仓库根目录启动：
+
+```bash
+bash scripts/devassist-dev.sh --with-rag  # 联合启动开发服务
+bash scripts/rag-cli.sh --help           # 查看本地 CLI 入口，不加载模型
+```
+
+原同级 `../zebao-rag` 已完整收入本机 `.local/legacy-zebao-rag-20261031/`，仅作历史资产归档，
+不再作为第二个开发项目。旧资料、模型和索引没有自动接入网页账号；目录、依赖隔离与恢复方法见
+[项目统一说明](docs/PROJECT_LAYOUT.md)。
+
 本机演示与发布候选统一使用 [发布指南](docs/RELEASE_CANDIDATE.md)。该入口采用生产构建、独立数据库和回环端口，
 不需要模型密钥即可演示文档检索；首次启动会先完成迁移和管理员初始化。
 

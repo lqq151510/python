@@ -5,7 +5,9 @@
 
 ## 环境与启动
 
-此目录是独立 Python 3.12 项目，DevAssist 后端仍使用自己的 Python 3.14 环境。
+此目录是 DevAssist 内的 RAG 模块，保留独立 Python 3.12 环境；后端使用 Python 3.14。
+两者属于同一个维护仓库，独立依赖环境不代表需要维护两个项目。
+2026-10-31 的目录收拢与旧资料恢复方式见 [项目统一说明](../../docs/PROJECT_LAYOUT.md)。
 
 ```bash
 # 从 DevAssist 根目录运行，默认只读取已经缓存的模型权重
@@ -32,14 +34,17 @@ worker 只监听 `127.0.0.1:8765`，采用根目录 `.local/zebao-rag/worker.tok
 源码包含 `build/search/image/ask/chat/sessions/eval/eval-gen`。启动方式：
 
 ```bash
-uv run --project services/zebao-rag zebao-rag sessions
+bash scripts/rag-cli.sh --help
+bash scripts/rag-cli.sh sessions
 ```
 
 多模态检索、Ollama Agent、会话 JSON 和摘要压缩仍属于本地 CLI。
 DevAssist 网页已接入 Markdown/TXT 知识库，并在 `/images` 提供图片上传与检索。这份 CLI 仍按主题集合隔离，持久化多轮对话不在此 CLI 的网页接口里。
 CLI 按主题集合隔离，不能作为多用户 HTTP 接口直接暴露。
 
-本次没有导入原项目的 `data/`、`chroma_db/`、`.venv/`、权重或含个人内容的脚本。
+首次源码整合没有导入原项目的 `data/`、`chroma_db/`、`.venv/`、权重或含个人内容的脚本。
+2026-10-31 已将旧目录完整归档到主项目的 `.local/legacy-zebao-rag-20261031/`，
+上述资产全部保留，CLI 默认不使用该归档。新入口不自动安装依赖或下载模型。
 CLI 的数据路径可用 `ZEBAO_RAG_DATA_DIR`、`ZEBAO_RAG_CHROMA_DIR` 配置，
 生成模型可用 `OLLAMA_BASE_URL`、`ZEBAO_RAG_AGENT_MODEL` 配置。
 评估与固定演示中的来源文件名依赖原语料；缺少语料时不能复现 Trae 的评估数字。
@@ -76,7 +81,7 @@ Milvus 服务为 2.4 系列，Python SDK 与 Setuptools 依赖已在本模块锁
 独立项目的代码生成命令已并入此目录。启动本机 Ollama 并准备模型后，可从 DevAssist 根目录运行：
 
 ```bash
-uv run --project services/zebao-rag zebao-rag code "用 FastAPI 写健康检查接口"
+bash scripts/rag-cli.sh code "用 FastAPI 写健康检查接口"
 ```
 
 默认模型为 `mellum2.1-q6k:latest`，可通过 `ZEBAO_RAG_CODE_MODEL` 更改；服务地址使用 `OLLAMA_BASE_URL`。该命令仅返回文本，不操作文件或执行命令，与网页编程工作台的 `CODE_*` 配置相互独立。请求会直连配置的服务地址，不使用环境代理。模型是否可用需以本机实际安装状态为准。

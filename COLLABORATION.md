@@ -1,5 +1,19 @@
 # DevAssist / zebao-rag 协作交接
 
+## 2026-10-31 项目统一（当前维护约定）
+
+泽宝要求合并成一个项目。唯一维护根目录为 `devassist`，RAG 源码统一修改
+`services/zebao-rag`；不再维护同级的旧项目。旧侧 12 个 Python 模块全部已在主项目存在，
+保留主项目增强版及锁文件，不用历史副本覆盖。
+
+旧 `../zebao-rag` 已整体移动到 `.local/legacy-zebao-rag-20261031/`，保留源码、个人脚本、
+资料、索引、模型、旧环境和原 Git 元数据。它只是本机归档，不自动作为网页或 CLI 数据源。
+统一 CLI 入口是 `bash scripts/rag-cli.sh`；网页联合启动仍用
+`bash scripts/devassist-dev.sh --with-rag`。Python 3.12/3.14 环境继续隔离。
+
+当前目录、验收与回滚方式见 [docs/PROJECT_LAYOUT.md](docs/PROJECT_LAYOUT.md)。
+以下 2026-10-16 的“原目录保留原样”和双目录交接说明是历史记录，由本节更新。
+
 ## 2026-10-16 开心（Codex）整合
 
 泽宝确认以 DevAssist 为主项目，将 Trae 开发的 zebao-rag 接入，并通过泽宝转发协作消息。
