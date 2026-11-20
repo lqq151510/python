@@ -2,7 +2,7 @@
 
 import json
 import re
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 from openai.types.chat import ChatCompletionMessageParam
 from pydantic import BaseModel, ConfigDict, Field
@@ -47,6 +47,13 @@ class GroundedAnswer(BaseModel):
     evidence: Annotated[list[GroundedEvidence], Field(max_length=10)]
 
 
+class ParsedGroundedAnswer(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    outcome: Literal["answered", "insufficient_evidence"]
+    answer: str = Field(min_length=1, max_length=8000)
+
+
 def build_grounded_messages(
     message: str, sources: list[KnowledgeSource]
 ) -> list[ChatCompletionMessageParam]:
@@ -69,11 +76,14 @@ def _unique_json_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     return result
 
 
-def parse_grounded_answer(content: str, sources: list[KnowledgeSource]) -> str:
+def parse_grounded_answer(
+    content: str, sources: list[KnowledgeSource]
+) -> ParsedGroundedAnswer:
     """Validate shape and quote provenance without a second model request.
 
-    An existing quote is necessary for an answer, but does not prove the whole
-    answer follows from it. Semantic answerability remains an evaluation concern.
+    ``answerable=false`` is insufficient evidence; model text on that branch is
+    discarded. A failed quote or citation stays invalid output. An accepted
+    quote does not prove the answer follows from the source.
     """
     if len(content) > MAX_GROUNDED_RESPONSE_CHARACTERS:
         raise ValueError("grounded response too long")
@@ -81,7 +91,10 @@ def parse_grounded_answer(content: str, sources: list[KnowledgeSource]) -> str:
     answer = GroundedAnswer.model_validate(payload)
     if not answer.answerable:
         # Never show model-provided factual text on the refusal branch.
-        return INSUFFICIENT_EVIDENCE_ANSWER
+        return ParsedGroundedAnswer(
+            outcome="insufficient_evidence",
+            answer=INSUFFICIENT_EVIDENCE_ANSWER,
+        )
     if not answer.answer.strip() or not answer.evidence:
         raise ValueError("missing grounded answer or evidence")
 
@@ -109,4 +122,4 @@ def parse_grounded_answer(content: str, sources: list[KnowledgeSource]) -> str:
     paragraphs = re.split(r"\n\s*\n", answer.answer.strip())
     if any(not re.search(r"\[S?[0-9]+\]", paragraph) for paragraph in paragraphs):
         raise ValueError("paragraph missing citation")
-    return answer.answer.strip()
+    return ParsedGroundedAnswer(outcome="answered", answer=answer.answer.strip())

@@ -54,18 +54,17 @@ def test_valid_exact_substring_and_existing_citation_formats(
 ) -> None:
     payload = valid_payload()
     payload["answer"] = f"  缓存时间为30秒。{marker}  "
-    assert (
-        parse_grounded_answer(json.dumps(payload), sources)
-        == f"缓存时间为30秒。{marker}"
-    )
+    parsed = parse_grounded_answer(json.dumps(payload), sources)
+    assert parsed.outcome == "answered"
+    assert parsed.answer == f"缓存时间为30秒。{marker}"
 
 
 def test_refusal_discards_model_facts(sources: list[KnowledgeSource]) -> None:
     payload = {"answerable": False, "answer": "Unverified fact [S99]", "evidence": []}
-    assert (
-        parse_grounded_answer(json.dumps(payload), sources)
-        == INSUFFICIENT_EVIDENCE_ANSWER
-    )
+    parsed = parse_grounded_answer(json.dumps(payload), sources)
+    assert parsed.outcome == "insufficient_evidence"
+    assert parsed.answer == INSUFFICIENT_EVIDENCE_ANSWER
+    assert "Unverified" not in parsed.answer
 
 
 @pytest.mark.parametrize(

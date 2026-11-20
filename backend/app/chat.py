@@ -26,13 +26,18 @@ from app.grounded_answer import (
 )
 from app.inline_citations import render_document_answer
 from app.knowledge import KnowledgeSource, RetrievalMethod, format_context
-from app.model_http import is_loopback_model_url, local_model_http_client
+from app.model_http import (
+    is_loopback_model_url,
+    local_model_http_client,
+    model_client_options,
+)
 
 logger = logging.getLogger(__name__)
 
 SYSTEM_PROMPT = (
     "你是 DevAssist 项目学习助手。优先使用简体中文清楚回答。"
     "当前阶段没有读取用户的项目文件、文档或日志，也没有调用工具。"
+    "用户消息里粘贴的摘录可以直接使用，但不要声称检索过知识库或检查过项目。"
     "只提供一般性解释和建议，不声称已经检查、执行或修复用户的项目。"
     "问题需要项目证据时，明确说明还需要哪些信息。"
 )
@@ -202,7 +207,7 @@ async def _request_answer(
             if sources and validate_evidence:
                 if completion.choices[0].finish_reason != "stop":
                     raise ValueError("incomplete grounded answer")
-                answer = parse_grounded_answer(content, sources)
+                answer = parse_grounded_answer(content, sources).answer
             elif sources:
                 answer = render_document_answer(
                     content, sources, complete=completion.choices[0].finish_reason == "stop"
@@ -281,7 +286,7 @@ async def generate_answer(
                     api_key=key.get_secret_value(),
                     base_url=str(settings.DEEPSEEK_BASE_URL),
                     max_retries=0,
-                    **({"http_client": http_client} if http_client is not None else {}),
+                    **model_client_options(http_client),
                     timeout=httpx.Timeout(
                         budget, connect=min(settings.CHAT_CONNECT_TIMEOUT_SECONDS, budget)
                     ),

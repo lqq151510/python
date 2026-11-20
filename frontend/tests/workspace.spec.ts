@@ -567,6 +567,24 @@ test("检索文档并在阅读视图打开，引用后提问带上文档范围",
   })
 })
 
+test("只引用笔记时提问不检索知识库", async ({ page }) => {
+  await page.goto("/workspace")
+  await page.locator(".zm-result").filter({ hasText: "每周复盘模板" }).click()
+  await expect(page.locator(".zm-reader__title")).toHaveText("每周复盘模板")
+  await page
+    .getByRole("main")
+    .getByRole("button", { name: "引用到上下文" })
+    .click()
+  await expect(page.locator(".zm-ctx__count")).toHaveText("1 条")
+  await page.locator("#zm-ask-input").fill("下周第一件事做什么？")
+  await page.getByRole("button", { name: "发送", exact: true }).click()
+  await expect(page.locator(".zm-turn__a")).toBeVisible()
+  expect(chatBody?.use_documents).not.toBe(true)
+  expect(chatBody).not.toHaveProperty("document_id")
+  expect(chatBody).not.toHaveProperty("document_ids")
+  expect(String(chatBody?.message)).toContain("每周复盘模板")
+})
+
 test("引用两篇文档时提问只传所选文档范围", async ({ page }) => {
   const otherId = "55555555-5555-4555-8555-555555555555"
   const otherDocument = { ...document, id: otherId, filename: "other.md" }

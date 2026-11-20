@@ -21,6 +21,8 @@ from app.chat import (
 )
 from app.core.config import settings
 from app.core.db import engine
+from app.evidence_gap import missing_required_literal
+from app.grounded_answer import INSUFFICIENT_EVIDENCE_ANSWER
 from app.knowledge import KnowledgeError, KnowledgeSource, retrieve_context_result
 from app.models import ChatRequestClaim, ChatTurn
 
@@ -89,6 +91,7 @@ async def _create_chat_inner(
 
     sources = []
     retrieval = None
+    gap: str | None = None
     if body.use_documents:
         try:
             retrieval = await run_in_threadpool(
@@ -118,19 +121,29 @@ async def _create_chat_inner(
                     "message": "知识库中没有匹配的片段，请先导入相关文档或调整问题。",
                 },
             )
-    phase["model_started"] = True
-    try:
-        answer = (
-            await generate_answer(body.message, request_id, sources)
-            if sources
-            else await generate_answer(body.message, request_id)
+        gap = missing_required_literal(
+            body.message,
+            [f"{source.heading}\n{source.content}" for source in sources],
         )
-    except ChatServiceError as exc:
-        request.state.chat_error_code = exc.code
-        raise HTTPException(
-            status_code=exc.status_code,
-            detail={"code": exc.code, "message": exc.message},
-        ) from None
+    if gap is not None:
+        # Related chunks remain visible. Skip the model so a missing literal
+        # cannot be filled in from general knowledge.
+        logger.info("chat_literal_evidence_gap request_id=%s code=%s", request_id, gap)
+        answer = INSUFFICIENT_EVIDENCE_ANSWER
+    else:
+        phase["model_started"] = True
+        try:
+            answer = (
+                await generate_answer(body.message, request_id, sources)
+                if sources
+                else await generate_answer(body.message, request_id)
+            )
+        except ChatServiceError as exc:
+            request.state.chat_error_code = exc.code
+            raise HTTPException(
+                status_code=exc.status_code,
+                detail={"code": exc.code, "message": exc.message},
+            ) from None
 
     response = ChatResponse(
         answer=answer,

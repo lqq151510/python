@@ -35,6 +35,7 @@ import {
 import { createNote, describeNoteError, listNotes } from "@/lib/notes"
 import {
   type AskTurn,
+  askDocumentScope,
   buildDataset,
   type CtxEntry,
   extractSymbols,
@@ -543,13 +544,7 @@ function WorkspacePage() {
     }
     if (askLock.current) return
     const turnId = createRequestId()
-    const docIds = [
-      ...new Set(
-        context
-          .map((entry) => entry.documentId)
-          .filter((value): value is string => Boolean(value)),
-      ),
-    ]
+    const scopeForAsk = askDocumentScope(context)
     const excerpts = context
       .map((entry) => `【${entry.source}】${entry.title}\n${entry.excerpt}`)
       .join("\n\n")
@@ -565,10 +560,10 @@ function WorkspacePage() {
     }
     askSnapshots.current.set(turnId, {
       message,
-      useDocuments: true,
-      retrievalMethod: DOC_METHOD,
-      documentId: docIds.length === 1 ? docIds[0] : undefined,
-      documentIds: docIds.length > 1 ? docIds : undefined,
+      useDocuments: scopeForAsk.useDocuments,
+      retrievalMethod: scopeForAsk.useDocuments ? DOC_METHOD : undefined,
+      documentId: scopeForAsk.documentId,
+      documentIds: scopeForAsk.documentIds,
       clientRequestId: createRequestId(),
     })
     setTurns((current) => [

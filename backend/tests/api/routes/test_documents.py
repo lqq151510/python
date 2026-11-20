@@ -13,6 +13,7 @@ from app import chat, knowledge
 from app.core.config import settings
 from app.core.security import create_access_token
 from app.core.upload_limit import MAX_UPLOAD_BODY_BYTES
+from app.grounded_answer import INSUFFICIENT_EVIDENCE_ANSWER
 from app.models import Document, DocumentChunk, User
 from tests.api.routes.test_chat import completion_response, mock_provider
 from tests.utils.user import create_random_user
@@ -332,6 +333,39 @@ def test_user_delete_cascades_documents(client: TestClient, db: Session) -> None
         ).all()
         == []
     )
+
+
+def test_literal_gap_returns_sources_without_calling_model(
+    client: TestClient, db: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    user = create_random_user(db)
+    uploaded = upload(
+        client,
+        user,
+        "# 缓存\n\n工单列表缓存使用 Redis，更新后删除对应缓存键。\n",
+        "cache.md",
+    )
+    assert uploaded.status_code == 201
+
+    def unexpected(*args: object, **kwargs: object) -> None:
+        del args, kwargs
+        raise AssertionError("no model call should happen")
+
+    monkeypatch.setattr(chat, "AsyncOpenAI", unexpected)
+    message = "缓存键删除后，请给出验证命令。"
+    response = client.post(
+        "/api/v1/chat",
+        headers=headers(user),
+        json={"message": message, "use_documents": True},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["answer"] == INSUFFICIENT_EVIDENCE_ANSWER
+    assert "缓存" in body["sources"][0]["content"]
+    history = client.get("/api/v1/chat/history", headers=headers(user))
+    assert history.status_code == 200
+    assert history.json()["count"] == 1
+    assert history.json()["data"][0]["message"] == message
 
 
 def test_grounded_chat_without_evidence_stops_before_model(

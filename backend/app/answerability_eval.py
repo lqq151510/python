@@ -11,6 +11,7 @@ from urllib.parse import urlsplit
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from app.grounded_answer import build_grounded_messages, parse_grounded_answer
 from app.knowledge import KnowledgeSource, format_context
 
 BASELINE_DOCUMENT_SYSTEM_PROMPT = (
@@ -140,8 +141,6 @@ def messages_for(
     mode: Mode, question: str, sources: list[KnowledgeSource]
 ) -> list[Any]:
     if mode == "grounded":
-        from app.grounded_answer import build_grounded_messages
-
         return list(build_grounded_messages(question, sources))
     return [
         {"role": "system", "content": BASELINE_DOCUMENT_SYSTEM_PROMPT},
@@ -208,20 +207,12 @@ def classify_response(
                 )
             )
         else:
-            from app.grounded_answer import (
-                INSUFFICIENT_EVIDENCE_ANSWER,
-                parse_grounded_answer,
-            )
-
             decoded = json.loads(content)
             if isinstance(decoded, dict) and decoded.get("answerable") is True:
                 result["quote_provenance_valid"] = _quotes_valid(decoded, sources)
-            result["answer"] = parse_grounded_answer(content, sources)
-            result["outcome"] = (
-                "insufficient_evidence"
-                if result["answer"] == INSUFFICIENT_EVIDENCE_ANSWER
-                else "answered"
-            )
+            parsed = parse_grounded_answer(content, sources)
+            result["answer"] = parsed.answer
+            result["outcome"] = parsed.outcome
     except (ValueError, TypeError, KeyError) as exc:
         result["error"] = str(exc)
     return result

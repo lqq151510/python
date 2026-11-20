@@ -360,6 +360,31 @@ export interface CtxEntry {
   path?: string
 }
 
+export interface AskDocumentScope {
+  useDocuments: boolean
+  documentId?: string
+  documentIds?: string[]
+}
+
+/** 没有文档引用时关闭知识库，避免笔记、图片或代码摘录扩到整个库。 */
+export function askDocumentScope(entries: CtxEntry[]): AskDocumentScope {
+  const documentIds = [
+    ...new Set(
+      entries
+        .map((entry) => entry.documentId)
+        .filter((value): value is string => Boolean(value)),
+    ),
+  ]
+  if (entries.length > 0 && documentIds.length === 0) {
+    return { useDocuments: false }
+  }
+  return {
+    useDocuments: true,
+    documentId: documentIds.length === 1 ? documentIds[0] : undefined,
+    documentIds: documentIds.length > 1 ? documentIds : undefined,
+  }
+}
+
 export interface AskTurn {
   id: string
   question: string

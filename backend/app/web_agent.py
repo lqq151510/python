@@ -1,7 +1,7 @@
 """网页多轮 Agent：只读检索当前用户的文档和图片，单轮最多 5 步。
 
 不使用命令行会话文件，不读主机目录，不提供写工具或 shell。
-检索没有命中时直接返回，不调用对话模型。
+检索没有命中，或字面证据对不上时，直接返回，不调用对话模型。
 """
 
 import asyncio
@@ -29,9 +29,11 @@ from starlette.concurrency import run_in_threadpool
 from app.chat import ChatServiceError
 from app.core.config import settings
 from app.core.db import engine
+from app.evidence_gap import missing_required_literal
+from app.grounded_answer import INSUFFICIENT_EVIDENCE_ANSWER
 from app.image_library import ImageError, search_text
 from app.knowledge import retrieve_context_result
-from app.model_http import local_model_http_client
+from app.model_http import local_model_http_client, model_client_options
 from app.models import AgentSession, AgentTurn, get_datetime_utc
 
 logger = logging.getLogger(__name__)
@@ -136,6 +138,7 @@ class Evidence:
     text: str
     empty: bool
     failed: bool
+    chunks: tuple[str, ...] = ()
 
 
 @dataclass
@@ -201,6 +204,21 @@ async def run_turn(
         return await run_in_threadpool(
             _save_turn, owner_id, body, request_id, EMPTY_ANSWER, steps, False
         )
+    # 上一轮回答不能补上当前问题缺的字面证据。
+    gap = missing_required_literal(body.message, evidence.chunks)
+    if gap is not None:
+        logger.info(
+            "agent_literal_evidence_gap request_id=%s code=%s", request_id, gap
+        )
+        return await run_in_threadpool(
+            _save_turn,
+            owner_id,
+            body,
+            request_id,
+            INSUFFICIENT_EVIDENCE_ANSWER,
+            steps,
+            False,
+        )
     answer, extra_steps, stopped = await _model_loop(
         history, body.message, evidence.text, owner_id, request_id
     )
@@ -215,10 +233,11 @@ async def run_turn(
     )
 
 
-def collect_evidence(owner_id: uuid.UUID, query: str, top_k: int = 3) -> Evidence:
+def collect_evidence(owner_id: uuid.UUID, query: str, top_k: int = 5) -> Evidence:
     """只查这个用户的文档和图片。query 不会被当成文件路径。"""
     limit = max(1, min(top_k, 5))
     sources = retrieve_context_result(owner_id, query, method="bm25").sources[:limit]
+    chunks = tuple(f"{source.heading}\n{source.content}" for source in sources)
     lines = [
         f"[文本] {source.filename} 行 {source.line_start}-{source.line_end}："
         f"{source.content.replace(chr(10), ' ')[:200]}"
@@ -238,7 +257,7 @@ def collect_evidence(owner_id: uuid.UUID, query: str, top_k: int = 3) -> Evidenc
         return Evidence(f"「{query}」没有命中当前用户的文档或图片。", True, False)
     if image_error and not sources and not hits:
         return Evidence(image_error, False, True)
-    return Evidence("\n".join(lines)[:EVIDENCE_CHARS], False, False)
+    return Evidence("\n".join(lines)[:EVIDENCE_CHARS], False, False, chunks)
 
 
 def _prepare(
@@ -382,7 +401,7 @@ async def _model_loop(
                     api_key=key.get_secret_value(),
                     base_url=str(settings.DEEPSEEK_BASE_URL),
                     max_retries=0,
-                    **({"http_client": http_client} if http_client is not None else {}),
+                    **model_client_options(http_client),
                     timeout=httpx.Timeout(
                         budget, connect=min(settings.CHAT_CONNECT_TIMEOUT_SECONDS, budget)
                     ),
